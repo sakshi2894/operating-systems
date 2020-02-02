@@ -4,7 +4,6 @@ USER_PROGS := \
 	cat\
 	echo\
 	forktest\
-	helloworld\
 	grep\
 	init\
 	kill\
