@@ -418,7 +418,7 @@ getfilenum(int pid)
 	int fd;
 	int count = 0;
         for(fd = 0; fd < NOFILE; fd++){
-    		if(proc->ofile[fd]){
+    		if(p->ofile[fd]){
 			count = count + 1;
    	 	}
   	}
