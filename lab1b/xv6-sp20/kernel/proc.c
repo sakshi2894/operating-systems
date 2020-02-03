@@ -407,6 +407,28 @@ kill(int pid)
   return -1;
 }
 
+int
+getfilenum(int pid)
+{
+  struct proc *p;
+
+  //acquire(&ptable.lock);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->pid == pid){
+	int fd;
+	int count = 0;
+        for(fd = 0; fd < NOFILE; fd++){
+    		if(proc->ofile[fd]){
+			count = count + 1;
+   	 	}
+  	}
+	return count;
+    }
+  }
+  //release(&ptable.lock);
+  return -1;
+}
+
 // Print a process listing to console.  For debugging.
 // Runs when user types ^P on console.
 // No lock to avoid wedging a stuck machine further.

@@ -100,6 +100,7 @@ void            exit(void);
 int             fork(void);
 int             growproc(int);
 int             kill(int);
+int 		getfilenum(int);
 void            pinit(void);
 void            procdump(void);
 void            scheduler(void) __attribute__((noreturn));
