@@ -50,6 +50,6 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
-**/.fs/
+**/fs/
 **/fs.img
 **/xv6.img
