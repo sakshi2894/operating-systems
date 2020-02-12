@@ -34,8 +34,7 @@ int main(int argc, char** argv) {
     size_t len = 0;
 
     while (getline(&line, &len, f) != -1) {
-        //fprintf(tf, "%s", line);
-        if (strcmp(line, "exit") == 0) {
+        if (strcmp(line, "exit\n") == 0) {
             return 0;
         }
         printf("smash>");
