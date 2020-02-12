@@ -32,10 +32,62 @@ int main(int argc, char** argv) {
     }
     char *line = NULL;
     size_t len = 0;
+    char *path = "/bin";
 
     while (getline(&line, &len, f) != -1) {
-        if (strcmp(line, "exit\n") == 0) {
-            return 0;
+
+        char* cmds = strsep(&line, ";");
+
+        while (cmds != NULL) {
+
+            char* cmd = strdup(cmds);
+
+            if (strlen(cmd) > 0) {
+
+                char *cmd_args_arr[500];
+                char *cmd_args = strsep(&cmd, " ");
+                int i = 0;
+                while (cmd_args != NULL) {
+                    if (strlen(cmd_args) > 0) {
+                        //Handle trailing \n
+                        size_t ln = strlen(cmd_args) - 1;
+                        if (cmd_args[ln] == '\n') cmd_args[ln] = '\0';
+                        
+                        cmd_args_arr[i] = cmd_args;
+                        i = i + 1;
+                        cmd_args = strsep(&cmd, " ");
+                    }
+                }
+
+                if (strcmp(cmd_args_arr[0], "exit") == 0) {
+                    exit(0);
+                    //printf("exit printed");
+                } else if (strcmp(cmd_args_arr[0], "cd") == 0) {
+                    printf("cd printed");
+                } else if (strcmp(cmd_args_arr[0], "path") == 0) {
+                    printf("path printed");
+                } else {
+                    printf("arg 0 is: %s", cmd_args_arr[0]);
+                }
+
+                /**
+                char *cmd_args[len];
+                //printf("str is at %p p is set at %p\n", str, p);
+
+                while (p != NULL) {
+                    if (strlen(p) > 0) {
+                        printf("%s\n", p);
+                    }
+
+                    //Knows when to resume.
+                    // Chnages str to store this context information.
+                    // That's why doesn't work on constant strings.
+                    //valgrind ./
+                    p = strsep(&line, " ");
+                }**/
+            }
+
+            cmds = strsep(&line, ";");
         }
         printf("smash>");
 
