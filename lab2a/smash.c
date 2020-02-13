@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <zconf.h>
+#include <ctype.h>
 
 
 typedef struct Node {
@@ -17,13 +18,15 @@ typedef struct Node {
 void handle_error();
 Node* init_path();
 void set_cmd_args(char* cmd, int* cmd_size, char* cmd_args_arr[]);
-void handle_path(char* cmd_args_arr[], int cmd_size, Node **path_head);
+void handle_path(char* cmd_args_arr[], Node **path_head);
 void addToFront(Node **head, char *data);
 void removeNode(Node **head, char *data);
 void clear(Node **head);
 void printList(Node *head);
 int get_size(Node *head);
-
+void run_parallel(Node *path_head, char* cmd);
+int check_syntax(char* line);
+int ARR_SIZE = 500;
 
 int main(int argc, char** argv) {
 
@@ -45,7 +48,8 @@ int main(int argc, char** argv) {
     }
 
     if (is_batch == 0) {
-        printf("smash>");
+        printf("smash> ");
+        fflush(stdout);
     }
     char *line = NULL;
     size_t len = 0;
@@ -54,11 +58,21 @@ int main(int argc, char** argv) {
 
     while (getline(&line, &len, f) != -1) {
 
+        if (check_syntax(strdup(line)) == -1) {
+            handle_error();
+            if (is_batch == 0) {
+                printf("smash> ");
+                fflush(stdout);
+            }
+            continue;
+        }
+
         char* cmds = strsep(&line, ";");
 
         while (cmds != NULL) {
 
             char* cmd = strdup(cmds);
+            char* cmd_dup = strdup(cmd);
 
             if (strlen(cmd) > 0) {
 
@@ -72,46 +86,24 @@ int main(int argc, char** argv) {
                     if (strcmp(cmd_args_arr[0], "exit") == 0) {
                         exit(0);
                     } else if (strcmp(cmd_args_arr[0], "cd") == 0) {
-                        if (cmd_size == 1 || cmd_size > 2) {
-                            handle_error();
-                        }
                         int ret = chdir(cmd_args_arr[1]);
                         if (ret != 0) {
                             handle_error();
                         }
                     } else if (strcmp(cmd_args_arr[0], "path") == 0) {
-                        handle_path(cmd_args_arr, cmd_size, &path_head);
+                        handle_path(cmd_args_arr, &path_head);
                     } else {        //Other commands.
                         // Look for commands in path directories.
-                        Node *pNode = path_head;
-                        int cmd_run = 0;
-                        while (pNode != NULL) {
-                            char *path_dir = pNode -> data;
-                            char *cmd_in_arg = strdup(cmd_args_arr[0]);
-                            char *full_path = (char *) malloc(2 + strlen(path_dir) + strlen(cmd_in_arg));
+                        //Break cmd on &
+                        char* parallel_cmds = strsep(&cmd_dup, "&");
 
-                            strcat(full_path, path_dir);
-                            strcat(full_path, "/");
-                            strcat(full_path, cmd_in_arg);
-                            printf("Searching for binary in path: %s\n", full_path);
-
-                            if (access(full_path, X_OK) == 0) {
-                                cmd_run = 1;
-                                int rc = fork();
-                                if (rc == 0) {
-                                    //cmd_args_arr[0] = full_path;
-                                    execv(full_path, cmd_args_arr);
-                                    handle_error();
-                                } else {
-                                    wait(NULL);
-                                }
-                                break;
-                            }
-                            pNode = pNode->next;
+                        while (parallel_cmds != NULL) {
+                            char* parallel_cmd = strdup(parallel_cmds);
+                            run_parallel(path_head, parallel_cmd);
+                            parallel_cmds = strsep(&cmd_dup, "&");
                         }
-                        if (cmd_run == 0) {
-                            handle_error();
-                        }
+                        //Wait for ALL children to finish.
+                        while (wait(NULL) > 0);
                     }
 
                 }
@@ -121,7 +113,8 @@ int main(int argc, char** argv) {
         }
 
         if (is_batch == 0) {
-            printf("smash>");
+            printf("smash> ");
+            fflush(stdout);
         }
 
     }
@@ -161,30 +154,168 @@ void set_cmd_args(char* cmd, int* cmd_size, char* cmd_args_arr[]) {
 }
 
 
-void handle_path(char* cmd_args_arr[], int cmd_size, Node **path_head) {
+void handle_path(char* cmd_args_arr[], Node **path_head) {
 
-    if (cmd_size < 2) {
-        handle_error();
-    }
     char* path_cmd = cmd_args_arr[1];
     if (strcmp(path_cmd, "add") == 0) {
-        if (cmd_size != 3) handle_error();
         addToFront(path_head, cmd_args_arr[2]);
-        printList(*path_head);
+        //printList(*path_head);
     } else if (strcmp(path_cmd, "remove") == 0) {
-        if (cmd_size != 3) handle_error();
         removeNode(path_head, cmd_args_arr[2]);
-        printList(*path_head);
+        //printList(*path_head);
     } else if (strcmp(path_cmd, "clear") == 0) {
-        if (cmd_size != 2) handle_error();
         clear(path_head);
-        printList(*path_head);
-    } else {
-        handle_error();
+        //printList(*path_head);
     }
 }
 
 
+
+void run_parallel(Node *path_head, char* cmd) {
+
+    int cmd_size = 0;
+    char* cmd_args_arr[500];
+
+    int i = 0;
+    int count = 0;
+    while (i < strlen(cmd)) {
+        if(cmd[i] == '>') {
+            count++;
+        }
+        i++;
+    }
+    int newfd = -1;
+    int prev_stdout = dup(1);
+    int prev_stderr = dup(2);
+
+    int is_redirect = 1;
+    if (count == 0) {
+        is_redirect = 0;
+    } else {
+        char *pcmd = strdup(cmd);
+        char *left = strsep(&pcmd, ">");
+        char *right = strsep(&pcmd, ">");
+        int rp = 0;
+        char* file_name_args[2];
+        set_cmd_args(right, &rp, file_name_args);
+        FILE* file = fopen(file_name_args[0], "w");
+        newfd = fileno(file);
+        dup2(newfd, 1);
+        dup2(newfd, 2);
+        cmd = strdup(left);
+    }
+
+    set_cmd_args(cmd, &cmd_size, cmd_args_arr);
+
+    if (cmd_size > 0) {
+        Node *pNode = path_head;
+        int cmd_run = 0;
+        while (pNode != NULL) {
+            char *path_dir = pNode->data;
+            char *cmd_in_arg = strdup(cmd_args_arr[0]);
+            char *full_path = (char *) malloc(2 + strlen(path_dir) + strlen(cmd_in_arg));
+
+            strcat(full_path, path_dir);
+            strcat(full_path, "/");
+            strcat(full_path, cmd_in_arg);
+            //printf("Searching for binary in path: %s\n", full_path);
+
+            if (access(full_path, X_OK) == 0) {
+                cmd_run = 1;
+                int rc = fork();
+                if (rc == 0) {
+                    execv(full_path, cmd_args_arr);
+                    handle_error();
+                }
+                break;
+            }
+            pNode = pNode->next;
+        }
+        if (cmd_run == 0) {
+            handle_error();
+        }
+    }
+
+    if (is_redirect == 1) {
+        dup2(prev_stdout, 1);
+        dup2(prev_stderr, 2);
+        close(prev_stdout);
+        close(prev_stderr);
+    }
+
+}
+
+int check_syntax(char* line) {
+    char* cmds = strsep(&line, ";");
+    while (cmds != NULL) {
+        char* single_cmd = strdup(cmds);
+        char* parallel_cmd = strdup(cmds);
+        int cmd_size = 0;
+        char* cmd_args_arr[500];
+        set_cmd_args(single_cmd, &cmd_size, cmd_args_arr);
+        if (cmd_size == 0) return 0;
+        char* cmd = cmd_args_arr[0];
+
+        if (strcmp(cmd, "exit") == 0) {
+            if (cmd_size != 1) {
+                return -1;
+            }
+        } else if (strcmp(cmd, "cd") == 0) {
+            if (cmd_size == 1 || cmd_size > 2) {
+                return -1;
+            }
+        } else if (strcmp(cmd, "path") == 0) {
+            if (cmd_size < 2) {
+                return -1;
+            }
+            char* path_cmd = cmd_args_arr[1];
+            if (strcmp(path_cmd, "add") == 0) {
+                if (cmd_size != 3) return -1;
+            } else if (strcmp(path_cmd, "remove") == 0) {
+                if (cmd_size != 3) return -1;
+            } else if (strcmp(path_cmd, "clear") == 0) {
+                if (cmd_size != 2) return -1;
+            } else {
+                return -1;
+            }
+        } else {    // Check for parallel and redirect commands.
+            char* pcmd = strsep(&parallel_cmd, "&");
+            while (pcmd != NULL) {
+                char* single_pcmd = strdup(pcmd);
+                //Check syntax for redirection.
+                int i = 0;
+                int count = 0;
+                while (single_pcmd[i] != '\0') {
+                    if(single_pcmd[i] == '>') {
+                        count++;
+                    }
+                    i++;
+                }
+
+                if (count >= 2) return -1;
+                if (count != 0) {
+                    // Else check number of characters on the left and right of >
+                    char *left = strsep(&pcmd, ">");
+                    char *right = strsep(&pcmd, ">");
+
+                    if (strcmp(left, "\0") == 0 || strcmp(right, "\0") == 0) return -1;
+                    char *right_dup = strdup(right);
+                    int psize = 0;
+                    set_cmd_args(right_dup, &psize, cmd_args_arr);
+                    if (psize != 1) return -1;
+                }
+
+                pcmd = strsep(&parallel_cmd, "&");
+            }
+
+        }
+
+        cmds = strsep(&line, ";");
+    }
+
+    return 0;
+
+}
 
 //Linked list methods below
 
