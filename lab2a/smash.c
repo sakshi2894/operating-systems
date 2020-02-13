@@ -20,7 +20,7 @@ Node* init_path();
 void set_cmd_args(char* cmd, int* cmd_size, char* cmd_args_arr[]);
 void handle_path(char* cmd_args_arr[], Node **path_head);
 void addToFront(Node **head, char *data);
-void removeNode(Node **head, char *data);
+int removeNode(Node **head, char *data);
 void clear(Node **head);
 void printList(Node *head);
 int get_size(Node *head);
@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
             if (strlen(cmd) > 0) {
 
                 int cmd_size = 0;
-                char *cmd_args_arr[500];
+                char *cmd_args_arr[ARR_SIZE];
 
                 set_cmd_args(cmd, &cmd_size, cmd_args_arr);
 
@@ -148,7 +148,7 @@ void set_cmd_args(char* cmd, int* cmd_size, char* cmd_args_arr[]) {
 
     // Clearning rest of the array.
     int i = *cmd_size;
-    for (; i < 500; i++) {
+    for (; i < ARR_SIZE; i++) {
         cmd_args_arr[i] = '\0';
     }
 }
@@ -161,7 +161,9 @@ void handle_path(char* cmd_args_arr[], Node **path_head) {
         addToFront(path_head, cmd_args_arr[2]);
         //printList(*path_head);
     } else if (strcmp(path_cmd, "remove") == 0) {
-        removeNode(path_head, cmd_args_arr[2]);
+        if (removeNode(path_head, cmd_args_arr[2]) == -1) {
+            handle_error();
+        }
         //printList(*path_head);
     } else if (strcmp(path_cmd, "clear") == 0) {
         clear(path_head);
@@ -174,7 +176,7 @@ void handle_path(char* cmd_args_arr[], Node **path_head) {
 void run_parallel(Node *path_head, char* cmd) {
 
     int cmd_size = 0;
-    char* cmd_args_arr[500];
+    char* cmd_args_arr[ARR_SIZE];
 
     int i = 0;
     int count = 0;
@@ -226,6 +228,7 @@ void run_parallel(Node *path_head, char* cmd) {
                 if (rc == 0) {
                     execv(full_path, cmd_args_arr);
                     handle_error();
+                    exit(0);
                 }
                 break;
             }
@@ -251,7 +254,7 @@ int check_syntax(char* line) {
         char* single_cmd = strdup(cmds);
         char* parallel_cmd = strdup(cmds);
         int cmd_size = 0;
-        char* cmd_args_arr[500];
+        char* cmd_args_arr[ARR_SIZE];
         set_cmd_args(single_cmd, &cmd_size, cmd_args_arr);
         if (cmd_size == 0) return 0;
         char* cmd = cmd_args_arr[0];
@@ -330,12 +333,14 @@ void addToFront(Node **head, char *data) {
     (*head) = node;
 }
 
-void removeNode(Node **head, char *data) {
+int removeNode(Node **head, char *data) {
+    int removed = -1;
     Node *temp = *head;
     Node *prev = NULL;
     while (temp != NULL) {
         if (strcmp(temp->data, data) == 0) { //This node has to be removed.
 
+            removed = 1;
             //Removing first node.
             if (prev == NULL) {
                 (*head) = temp-> next;
@@ -352,6 +357,7 @@ void removeNode(Node **head, char *data) {
             temp = temp->next;
         }
     }
+    return removed;
 }
 
 
