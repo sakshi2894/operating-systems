@@ -17,7 +17,7 @@ typedef struct Node {
 void handle_error();
 Node* init_path();
 void set_cmd_args(char* cmd, int* cmd_size, char* cmd_args_arr[]);
-void handle_path(char* cmd_args_arr[], int cmd_size, Node *path_head);
+void handle_path(char* cmd_args_arr[], int cmd_size, Node **path_head);
 void addToFront(Node **head, char *data);
 void removeNode(Node **head, char *data);
 void clear(Node **head);
@@ -63,54 +63,58 @@ int main(int argc, char** argv) {
             if (strlen(cmd) > 0) {
 
                 int cmd_size = 0;
-                char* cmd_args_arr[500];
+                char *cmd_args_arr[500];
 
                 set_cmd_args(cmd, &cmd_size, cmd_args_arr);
 
-                //Built-in commands.
-                if (strcmp(cmd_args_arr[0], "exit") == 0) {
-                    exit(0);
-                } else if (strcmp(cmd_args_arr[0], "cd") == 0) {
-                    if (cmd_size == 1 || cmd_size > 2 ) {
-                        handle_error();
-                    }
-                    chdir(cmd_args_arr[1]);
-                } else if (strcmp(cmd_args_arr[0], "path") == 0) {
-                    handle_path(cmd_args_arr, cmd_size, path_head);
-                } else {        //Other commands.
-                    // Look for commands in path directories.
-                    Node *pNode = path_head;
-                    int cmd_run = 0;
-                    while (pNode != NULL) {
-                        char* path_dir = pNode->data;
-                        char* cmd_in_arg = strdup(cmd_args_arr[0]);
-                        char * full_path = (char *) malloc(2 + strlen(path_dir)+ strlen(cmd_in_arg) );
+                if (cmd_size > 0) {
+                    //Built-in commands.
+                    if (strcmp(cmd_args_arr[0], "exit") == 0) {
+                        exit(0);
+                    } else if (strcmp(cmd_args_arr[0], "cd") == 0) {
+                        if (cmd_size == 1 || cmd_size > 2) {
+                            handle_error();
+                        }
+                        int ret = chdir(cmd_args_arr[1]);
+                        if (ret != 0) {
+                            handle_error();
+                        }
+                    } else if (strcmp(cmd_args_arr[0], "path") == 0) {
+                        handle_path(cmd_args_arr, cmd_size, &path_head);
+                    } else {        //Other commands.
+                        // Look for commands in path directories.
+                        Node *pNode = path_head;
+                        int cmd_run = 0;
+                        while (pNode != NULL) {
+                            char *path_dir = pNode -> data;
+                            char *cmd_in_arg = strdup(cmd_args_arr[0]);
+                            char *full_path = (char *) malloc(2 + strlen(path_dir) + strlen(cmd_in_arg));
 
-                        strcat(full_path, path_dir);
-                        strcat(full_path, "/");
-                        strcat(full_path, cmd_in_arg);
-                        printf("full path is: %s\n", full_path);
+                            strcat(full_path, path_dir);
+                            strcat(full_path, "/");
+                            strcat(full_path, cmd_in_arg);
+                            printf("Searching for binary in path: %s\n", full_path);
 
-                        if (access(full_path, X_OK) == 0) {
-                            cmd_run = 1;
-                            int rc = fork();
-                            if (rc == 0) {
-                                cmd_args_arr[0] = full_path;
-                                execv(full_path, cmd_args_arr);
-                                handle_error();
-                            } else {
-                                wait(NULL);
+                            if (access(full_path, X_OK) == 0) {
+                                cmd_run = 1;
+                                int rc = fork();
+                                if (rc == 0) {
+                                    //cmd_args_arr[0] = full_path;
+                                    execv(full_path, cmd_args_arr);
+                                    handle_error();
+                                } else {
+                                    wait(NULL);
+                                }
+                                break;
                             }
-                            pNode = NULL;
-                        } else {
                             pNode = pNode->next;
                         }
+                        if (cmd_run == 0) {
+                            handle_error();
+                        }
                     }
-                    if (cmd_run == 0) {
-                        handle_error();
-                    }
-                }
 
+                }
             }
 
             cmds = strsep(&line, ";");
@@ -139,38 +143,42 @@ Node* init_path() {
 
 void set_cmd_args(char* cmd, int* cmd_size, char* cmd_args_arr[]) {
 
-    char *cmd_args = strsep(&cmd, " ");
+    const char *delimiters = " \t\n\v\f\r";
+    char *cmd_args = strsep(&cmd, delimiters);
     while (cmd_args != NULL) {
         if (strlen(cmd_args) > 0) {
-            //Handle trailing \n
-            size_t ln = strlen(cmd_args) - 1;
-            if (cmd_args[ln] == '\n') cmd_args[ln] = '\0';
-
             cmd_args_arr[*cmd_size] = cmd_args;
             *cmd_size = *cmd_size + 1;
         }
-        cmd_args = strsep(&cmd, " ");
+        cmd_args = strsep(&cmd, " \t\n\v\f\r");
+    }
+
+    // Clearning rest of the array.
+    int i = *cmd_size;
+    for (; i < 500; i++) {
+        cmd_args_arr[i] = '\0';
     }
 }
 
 
-void handle_path(char* cmd_args_arr[], int cmd_size, Node *path_head) {
+void handle_path(char* cmd_args_arr[], int cmd_size, Node **path_head) {
+
     if (cmd_size < 2) {
         handle_error();
     }
     char* path_cmd = cmd_args_arr[1];
     if (strcmp(path_cmd, "add") == 0) {
         if (cmd_size != 3) handle_error();
-        addToFront(&path_head, cmd_args_arr[2]);
-        printList(path_head);
+        addToFront(path_head, cmd_args_arr[2]);
+        printList(*path_head);
     } else if (strcmp(path_cmd, "remove") == 0) {
         if (cmd_size != 3) handle_error();
-        removeNode(&path_head, cmd_args_arr[2]);
-        printList(path_head);
+        removeNode(path_head, cmd_args_arr[2]);
+        printList(*path_head);
     } else if (strcmp(path_cmd, "clear") == 0) {
         if (cmd_size != 2) handle_error();
-        clear(&path_head);
-        printList(path_head);
+        clear(path_head);
+        printList(*path_head);
     } else {
         handle_error();
     }
