@@ -7,7 +7,8 @@
 #include <string.h>
 #include <zconf.h>
 #include <ctype.h>
-
+#include <sys/types.h>
+#include <sys/wait.h>
 
 typedef struct Node {
     char* data;
