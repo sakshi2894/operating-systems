@@ -118,6 +118,11 @@ int main(int argc, char** argv) {
         }
 
     }
+
+    if (is_batch == 0) {
+        printf("\n");
+    }
+    fclose(f);
     free(line);
 
 }
@@ -146,7 +151,7 @@ void set_cmd_args(char* cmd, int* cmd_size, char* cmd_args_arr[]) {
         cmd_args = strsep(&cmd, " \t\n\v\f\r");
     }
 
-    // Clearning rest of the array.
+    // Clearing rest of the array.
     int i = *cmd_size;
     for (; i < 1000; i++) {
         cmd_args_arr[i] = '\0';
