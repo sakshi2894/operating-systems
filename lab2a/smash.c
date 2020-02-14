@@ -26,7 +26,7 @@ void printList(Node *head);
 int get_size(Node *head);
 void run_parallel(Node *path_head, char* cmd);
 int check_syntax(char* line);
-int ARR_SIZE = 500;
+int ARR_SIZE = 1000;
 
 int main(int argc, char** argv) {
 
@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
             if (strlen(cmd) > 0) {
 
                 int cmd_size = 0;
-                char *cmd_args_arr[500];
+                char *cmd_args_arr[1000];
 
                 set_cmd_args(cmd, &cmd_size, cmd_args_arr);
 
@@ -148,7 +148,7 @@ void set_cmd_args(char* cmd, int* cmd_size, char* cmd_args_arr[]) {
 
     // Clearning rest of the array.
     int i = *cmd_size;
-    for (; i < 500; i++) {
+    for (; i < 1000; i++) {
         cmd_args_arr[i] = '\0';
     }
 }
@@ -176,7 +176,7 @@ void handle_path(char* cmd_args_arr[], Node **path_head) {
 void run_parallel(Node *path_head, char* cmd) {
 
     int cmd_size = 0;
-    char* cmd_args_arr[500];
+    char* cmd_args_arr[1000];
 
     int i = 0;
     int count = 0;
@@ -254,7 +254,7 @@ int check_syntax(char* line) {
         char* single_cmd = strdup(cmds);
         char* parallel_cmd = strdup(cmds);
         int cmd_size = 0;
-        char* cmd_args_arr[500];
+        char* cmd_args_arr[1000];
         set_cmd_args(single_cmd, &cmd_size, cmd_args_arr);
         if (cmd_size == 0) return 0;
         char* cmd = cmd_args_arr[0];
