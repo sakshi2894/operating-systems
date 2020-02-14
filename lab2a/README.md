@@ -1,4 +1,4 @@
-# Assignment 2b
+# Assignment 2a
 Submitted By: Sakshi Bansal, campus id: 9081457781
 
 The submission contains one executable named smash.c which is _command line interpreter (CLI)_ or, as it is more commonly known, a _shell_. The shell operates in a basic way: when you type in a command (in response to its prompt), the shell creates a child process that executes the command you entered and then prompts for more user input when it has finished.
