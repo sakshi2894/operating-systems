@@ -234,17 +234,20 @@ void run_parallel(Node *path_head, char* cmd) {
             }
             pNode = pNode->next;
         }
+
+        if (is_redirect == 1) {
+            dup2(prev_stdout, 1);
+            dup2(prev_stderr, 2);
+            close(prev_stdout);
+            close(prev_stderr);
+        }
+
         if (cmd_run == 0) {
             handle_error();
         }
     }
 
-    if (is_redirect == 1) {
-        dup2(prev_stdout, 1);
-        dup2(prev_stderr, 2);
-        close(prev_stdout);
-        close(prev_stderr);
-    }
+
 
 }
 
@@ -303,9 +306,17 @@ int check_syntax(char* line) {
 
                     if (strcmp(left, "\0") == 0 || strcmp(right, "\0") == 0) return -1;
                     char *right_dup = strdup(right);
+                    char *left_dup = strdup(left);
                     int psize = 0;
-                    set_cmd_args(right_dup, &psize, cmd_args_arr);
+
+                    char* cmd_args_right[1000];
+                    set_cmd_args(right_dup, &psize, cmd_args_right);
                     if (psize != 1) return -1;
+
+                    psize = 0;
+                    char* cmd_args_left[1000];
+                    set_cmd_args(left_dup, &psize, cmd_args_left);
+                    if (psize == 0) return -1;
                 }
 
                 pcmd = strsep(&parallel_cmd, "&");
