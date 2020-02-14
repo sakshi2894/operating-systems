@@ -38,7 +38,7 @@ int main(int argc, char** argv) {
         exit(1);
     } else if (argc == 1){
         f = stdin;
-    } else {    //argc == 2
+    } else if (argc == 2){    //argc == 2
         char *filename = argv[1];
         f = fopen(filename, "r");
         if (f == NULL) {
@@ -46,6 +46,9 @@ int main(int argc, char** argv) {
             exit(1);
         }
         is_batch = 1;
+    } else {
+        handle_error();
+        exit(1);
     }
 
     if (is_batch == 0) {
