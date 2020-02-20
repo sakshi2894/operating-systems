@@ -2,7 +2,7 @@
 #define _USER_H_
 
 struct stat;
-
+enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 // system calls
 int fork(void);
 int exit(void) __attribute__((noreturn));
