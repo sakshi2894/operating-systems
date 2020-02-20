@@ -443,4 +443,7 @@ procdump(void)
   }
 }
 
-
+int getprocinfo(struct pstat* ps)
+{
+  return 22;
+}

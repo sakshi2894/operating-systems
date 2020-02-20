@@ -88,3 +88,10 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+
+int 
+sys_getprocinfo(void) 
+{
+  return 22;
+}
