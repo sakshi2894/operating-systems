@@ -5,6 +5,7 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "pstat.h"
 
 struct {
   struct spinlock lock;
@@ -445,5 +446,26 @@ procdump(void)
 
 int getprocinfo(struct pstat* ps)
 {
-  return 22;
+  //ps = (struct pstat*) malloc(sizeof(struct pstat));
+  int i = 0;
+  struct proc *p;
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+	ps -> inuse[i] = p -> inuse;
+	ps -> pid[i] = p -> pid;
+	ps -> priority[i] = p -> priority;
+	ps -> state[i] = p -> state;
+	int j = 0;
+	for (j = 0; j < 4; j++) {
+	  ps -> ticks[i][j] = p -> ticks[j];
+	}
+	j = 0;
+	for (j = 0; j < 4; j++) {
+	  ps -> wait_ticks[i][j] = p -> wait_ticks[j];
+	}
+	//ps -> ticks[i] = p -> ticks;
+	//ps -> wait_ticks[i] = p -> wait_ticks;
+	i++;
+  }
+  //cprintf("done: i%d\n", i);
+  return 0;
 }

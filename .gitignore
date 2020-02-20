@@ -53,3 +53,12 @@ dkms.conf
 **/fs/
 **/fs.img
 **/xv6.img
+
+**/bootother
+**/initcode
+**/bootblock
+**/kernel
+**/vectors.S
+**/mkfs
+**/user/bin/
+**/.gdbinit

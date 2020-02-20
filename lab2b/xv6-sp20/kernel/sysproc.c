@@ -5,6 +5,7 @@
 #include "mmu.h"
 #include "proc.h"
 #include "sysfunc.h"
+#include "pstat.h"
 
 int
 sys_fork(void)
@@ -93,5 +94,10 @@ sys_uptime(void)
 int 
 sys_getprocinfo(void) 
 {
-  return 22;
+  struct pstat* pst;
+
+  if (argptr(1, (void*)&pst, sizeof(*pst)) < 0) 
+    return -1;
+  
+  return getprocinfo(pst);
 }
