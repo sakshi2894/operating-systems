@@ -46,6 +46,23 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
+  p->priority = 3;
+  p->inuse = 0;
+  //int ticks[4];
+  p->ticks[3] = 0;
+  p->ticks[2] = 0;
+  p->ticks[1] = 0;
+  p->ticks[0] = 0;
+
+  //p->ticks = ticks;
+
+  //int wait_ticks[4];
+  p->wait_ticks[0] = 0;
+  p->wait_ticks[1] = 0;
+  p->wait_ticks[2] = 0;
+  p->wait_ticks[3] = 0;
+
+  //p->wait_ticks = wait_ticks;
   release(&ptable.lock);
 
   // Allocate kernel stack if possible.
@@ -256,7 +273,16 @@ wait(void)
 void
 scheduler(void)
 {
+
+
   struct proc *p;
+  //struct 
+  getprocinfo();
+  //struct proc pq3[NPROC];
+  //struct proc pq2[NPROC];
+  //struct proc pq1[NPROC];
+  //struct proc pq0[NPROC];
+
 
   for(;;){
     // Enable interrupts on this processor.
@@ -354,6 +380,7 @@ sleep(void *chan, struct spinlock *lk)
   proc->state = SLEEPING;
   sched();
 
+
   // Tidy up.
   proc->chan = 0;
 
@@ -446,14 +473,21 @@ procdump(void)
 
 int getprocinfo(struct pstat* ps)
 {
+
+  //ps -> inuse[0] = 1;
   //ps = (struct pstat*) malloc(sizeof(struct pstat));
-  int i = 0;
+  
+	int i = 0;
   struct proc *p;
+  
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-	ps -> inuse[i] = p -> inuse;
-	ps -> pid[i] = p -> pid;
+	
+	//(ps -> inuse)[i] = p -> inuse;
+	ps -> pid[i] = p->pid;
+	ps -> inuse[i] = p->inuse;
 	ps -> priority[i] = p -> priority;
-	ps -> state[i] = p -> state;
+	ps -> state[i] = p->state;
+	
 	int j = 0;
 	for (j = 0; j < 4; j++) {
 	  ps -> ticks[i][j] = p -> ticks[j];
@@ -462,6 +496,7 @@ int getprocinfo(struct pstat* ps)
 	for (j = 0; j < 4; j++) {
 	  ps -> wait_ticks[i][j] = p -> wait_ticks[j];
 	}
+
 	//ps -> ticks[i] = p -> ticks;
 	//ps -> wait_ticks[i] = p -> wait_ticks;
 	i++;

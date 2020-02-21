@@ -96,7 +96,7 @@ sys_getprocinfo(void)
 {
   struct pstat* pst;
 
-  if (argptr(1, (void*)&pst, sizeof(*pst)) < 0) 
+  if (argptr(0, (void*)&pst, sizeof(*pst)) < 0) 
     return -1;
   
   return getprocinfo(pst);
