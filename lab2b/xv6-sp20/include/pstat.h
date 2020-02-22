@@ -4,6 +4,8 @@
 #include "param.h"
 
 struct pstat {
+  int rr_ticks_used[NPROC];
+  int level_ticks_used[NPROC];
   int inuse[NPROC]; // whether this slot of the process table is in use (1 or 0)
   int pid[NPROC];   // PID of each process
   int priority[NPROC];  // current priority level of each process (0-3)

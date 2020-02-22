@@ -79,6 +79,8 @@ struct proc {
   int priority;
   int ticks[4];
   int wait_ticks[4];
+  int rr_ticks_used;
+  int level_ticks_used;
 };
 
 // Process memory is laid out contiguously, low addresses first:

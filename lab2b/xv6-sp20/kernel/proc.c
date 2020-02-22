@@ -12,6 +12,8 @@ struct {
   struct proc proc[NPROC];
 } ptable;
 
+int getprocinfo(struct pstat* ps);
+int getproctorun(void);
 static struct proc *initproc;
 
 int nextpid = 1;
@@ -19,6 +21,10 @@ extern void forkret(void);
 extern void trapret(void);
 
 static void wakeup1(void *chan);
+
+int nextprocind[4] = {0, 0, 0, 0};
+int rr_slices[4] = {64, 4, 2, 1};
+int time_slices[4] = {-1, 32, 16, 8};
 
 void
 pinit(void)
@@ -48,21 +54,18 @@ found:
   p->pid = nextpid++;
   p->priority = 3;
   p->inuse = 0;
-  //int ticks[4];
+ 
+ /** 
   p->ticks[3] = 0;
   p->ticks[2] = 0;
   p->ticks[1] = 0;
   p->ticks[0] = 0;
 
-  //p->ticks = ticks;
-
-  //int wait_ticks[4];
   p->wait_ticks[0] = 0;
   p->wait_ticks[1] = 0;
   p->wait_ticks[2] = 0;
   p->wait_ticks[3] = 0;
-
-  //p->wait_ticks = wait_ticks;
+**/
   release(&ptable.lock);
 
   // Allocate kernel stack if possible.
@@ -274,43 +277,88 @@ void
 scheduler(void)
 {
 
-
   struct proc *p;
-  //struct 
-  getprocinfo();
-  //struct proc pq3[NPROC];
-  //struct proc pq2[NPROC];
-  //struct proc pq1[NPROC];
-  //struct proc pq0[NPROC];
-
 
   for(;;){
     // Enable interrupts on this processor.
     sti();
+	acquire(&ptable.lock);
+	int ind = getproctorun();
+	if (ind != -1) {
+	p = ptable.proc + ind;
 
-    // Loop over process table looking for process to run.
-    acquire(&ptable.lock);
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
-        continue;
+        //Update wait time for all processes.
+        struct proc *ps;
+        for(ps = ptable.proc; ps < &ptable.proc[NPROC]; ps++) {
+            ps->wait_ticks[ps->priority] = ps->wait_ticks[ps->priority] + 1;
+        }
+
+        int level = p->priority;
+
+        p->wait_ticks[level] = 0;
+
+        p->inuse = 1;
+        p->level_ticks_used = p->level_ticks_used + 1 ;
+        p->rr_ticks_used = p->rr_ticks_used + 1;
+        p->ticks[level] = p->ticks[level] + 1;
+
+
+        if (level != 0 && p->level_ticks_used >= time_slices[level]) {
+            p->wait_ticks[level] = 0;
+            p->priority = level - 1;
+            p->level_ticks_used = 0;
+            p->rr_ticks_used = 0;
+        }
+
+        if (p->rr_ticks_used >= rr_slices[level]) {
+            p->rr_ticks_used = 0;
+            nextprocind[level] = (nextprocind[level] + 1) % NPROC;
+        }
+
 
       // Switch to chosen process.  It is the process's job
       // to release ptable.lock and then reacquire it
       // before jumping back to us.
-      proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
-      swtch(&cpu->scheduler, proc->context);
-      switchkvm();
+    proc = p;
+    switchuvm(p);
+    p->state = RUNNING;
+    swtch(&cpu->scheduler, proc->context);
+    switchkvm();
 
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      proc = 0;
+    // Process is done running for now.
+    // It should have changed its p->state before coming back.
+    proc = 0;
     }
     release(&ptable.lock);
-
   }
 }
+
+int getproctorun(void) {
+    struct pstat pst;
+    getprocinfo(&pst);
+    int i;
+    //TODO: boost a process waiting for a long time.
+
+    // Iterate over list of processes and select highest level proceess with
+    // closes RR number.
+    int level = 3;
+    int num_proc = NPROC;
+
+    int ind;
+    while (level >= 0) {
+        for (i = 0; i < num_proc; i++) {
+            ind = (nextprocind[level] + i) % num_proc;
+            if (pst.state[ind] == RUNNABLE && pst.priority[ind] == level) {
+		nextprocind[level] = ind;
+		return ind;
+            }
+        }
+        level = level - 1;
+    }
+
+    return -1;
+}
+
 
 // Enter scheduler.  Must hold only ptable.lock
 // and have changed proc->state.
@@ -473,16 +521,14 @@ procdump(void)
 
 int getprocinfo(struct pstat* ps)
 {
-
-  //ps -> inuse[0] = 1;
-  //ps = (struct pstat*) malloc(sizeof(struct pstat));
   
-	int i = 0;
+  int i = 0;
   struct proc *p;
   
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-	
-	//(ps -> inuse)[i] = p -> inuse;
+
+        ps -> rr_ticks_used[i] = p->rr_ticks_used;
+        ps -> level_ticks_used[i] = p->level_ticks_used;
 	ps -> pid[i] = p->pid;
 	ps -> inuse[i] = p->inuse;
 	ps -> priority[i] = p -> priority;
@@ -496,11 +542,7 @@ int getprocinfo(struct pstat* ps)
 	for (j = 0; j < 4; j++) {
 	  ps -> wait_ticks[i][j] = p -> wait_ticks[j];
 	}
-
-	//ps -> ticks[i] = p -> ticks;
-	//ps -> wait_ticks[i] = p -> wait_ticks;
 	i++;
   }
-  //cprintf("done: i%d\n", i);
   return 0;
 }
