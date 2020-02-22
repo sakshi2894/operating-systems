@@ -25,6 +25,7 @@ static void wakeup1(void *chan);
 int nextprocind[4] = {0, 0, 0, 0};
 int rr_slices[4] = {64, 4, 2, 1};
 int time_slices[4] = {-1, 32, 16, 8};
+int boost_slices[4] = {640, 320, 160, 80};
 
 void
 pinit(void)
@@ -55,17 +56,6 @@ found:
   p->priority = 3;
   p->inuse = 0;
  
- /** 
-  p->ticks[3] = 0;
-  p->ticks[2] = 0;
-  p->ticks[1] = 0;
-  p->ticks[0] = 0;
-
-  p->wait_ticks[0] = 0;
-  p->wait_ticks[1] = 0;
-  p->wait_ticks[2] = 0;
-  p->wait_ticks[3] = 0;
-**/
   release(&ptable.lock);
 
   // Allocate kernel stack if possible.
@@ -289,16 +279,28 @@ scheduler(void)
         if (ind != -1) {
             p = ptable.proc + ind;
 
-            //Update wait time for all processes.
+            //Update wait time for all RUNNABLE processes.
             struct proc *ps;
+	    int j = 0;
             for(ps = ptable.proc; ps < &ptable.proc[NPROC]; ps++) {
-                ps->wait_ticks[ps->priority] = ps->wait_ticks[ps->priority] + 1;
+		if (j != ind && ps -> state == RUNNABLE) {
+		    int ps_level = ps->priority;
+                    ps->wait_ticks[ps_level] = ps->wait_ticks[ps_level] + 1;
+		    if (ps->wait_ticks[ps_level] >= boost_slices[ps_level]) {
+		        ps->wait_ticks[ps_level] = 0;
+			if (ps_level != 3) {
+				ps->priority = ps_level + 1;
+			}
+			ps->rr_ticks_used = 0;
+			ps->level_ticks_used = 0;
+		    }
+		}
+		j++;
             }
 
             int level = p->priority;
 
             p->wait_ticks[level] = 0;
-
             p->inuse = 1;
             p->level_ticks_used = p->level_ticks_used + 1 ;
             p->rr_ticks_used = p->rr_ticks_used + 1;
@@ -556,5 +558,8 @@ int boostproc(void)
   if (level != 3) {
   	proc->priority = level + 1;
   }
+  proc->rr_ticks_used = 0;
+  proc->level_ticks_used = 0;
+  proc->wait_ticks[level] = 0;
   return 0;
 }
