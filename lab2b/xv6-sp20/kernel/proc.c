@@ -549,3 +549,12 @@ int getprocinfo(struct pstat* ps)
   }
   return 0;
 }
+
+int boostproc(void) 
+{
+  int level = proc->priority;
+  if (level != 3) {
+  	proc->priority = level + 1;
+  }
+  return 0;
+}

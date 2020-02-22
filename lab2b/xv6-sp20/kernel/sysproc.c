@@ -101,3 +101,9 @@ sys_getprocinfo(void)
   
   return getprocinfo(pst);
 }
+
+int 
+sys_boostproc(void)
+{
+  return boostproc();
+}

@@ -62,3 +62,4 @@ dkms.conf
 **/mkfs
 **/user/bin/
 **/.gdbinit
+**/runtests.log
