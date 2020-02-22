@@ -273,65 +273,68 @@ wait(void)
 //  - swtch to start running that process
 //  - eventually that process transfers control
 //      via swtch back to the scheduler.
+
+
 void
 scheduler(void)
 {
 
-  struct proc *p;
+    struct proc *p;
 
-  for(;;){
-    // Enable interrupts on this processor.
-    sti();
-	acquire(&ptable.lock);
-	int ind = getproctorun();
-	if (ind != -1) {
-	p = ptable.proc + ind;
+    for(;;){
+        // Enable interrupts on this processor.
+        sti();
+        acquire(&ptable.lock);
+        int ind = getproctorun();
+        if (ind != -1) {
+            p = ptable.proc + ind;
 
-        //Update wait time for all processes.
-        struct proc *ps;
-        for(ps = ptable.proc; ps < &ptable.proc[NPROC]; ps++) {
-            ps->wait_ticks[ps->priority] = ps->wait_ticks[ps->priority] + 1;
-        }
+            //Update wait time for all processes.
+            struct proc *ps;
+            for(ps = ptable.proc; ps < &ptable.proc[NPROC]; ps++) {
+                ps->wait_ticks[ps->priority] = ps->wait_ticks[ps->priority] + 1;
+            }
 
-        int level = p->priority;
+            int level = p->priority;
 
-        p->wait_ticks[level] = 0;
-
-        p->inuse = 1;
-        p->level_ticks_used = p->level_ticks_used + 1 ;
-        p->rr_ticks_used = p->rr_ticks_used + 1;
-        p->ticks[level] = p->ticks[level] + 1;
-
-
-        if (level != 0 && p->level_ticks_used >= time_slices[level]) {
             p->wait_ticks[level] = 0;
-            p->priority = level - 1;
-            p->level_ticks_used = 0;
-            p->rr_ticks_used = 0;
+
+            p->inuse = 1;
+            p->level_ticks_used = p->level_ticks_used + 1 ;
+            p->rr_ticks_used = p->rr_ticks_used + 1;
+            p->ticks[level] = p->ticks[level] + 1;
+
+
+            if (level != 0 && p->level_ticks_used >= time_slices[level]) {
+                p->wait_ticks[level] = 0;
+                p->priority = level - 1;
+                p->level_ticks_used = 0;
+                p->rr_ticks_used = 0;
+            }
+
+            if (p->rr_ticks_used >= rr_slices[level]) {
+                p->rr_ticks_used = 0;
+                nextprocind[level] = (nextprocind[level] + 1) % NPROC;
+            }
+
+
+            // Switch to chosen process.  It is the process's job
+            // to release ptable.lock and then reacquire it
+            // before jumping back to us.
+            proc = p;
+            switchuvm(p);
+            p->state = RUNNING;
+            swtch(&cpu->scheduler, proc->context);
+            switchkvm();
+
+            // Process is done running for now.
+            // It should have changed its p->state before coming back.
+            proc = 0;
         }
-
-        if (p->rr_ticks_used >= rr_slices[level]) {
-            p->rr_ticks_used = 0;
-            nextprocind[level] = (nextprocind[level] + 1) % NPROC;
-        }
-
-
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-    proc = p;
-    switchuvm(p);
-    p->state = RUNNING;
-    swtch(&cpu->scheduler, proc->context);
-    switchkvm();
-
-    // Process is done running for now.
-    // It should have changed its p->state before coming back.
-    proc = 0;
+        release(&ptable.lock);
     }
-    release(&ptable.lock);
-  }
 }
+
 
 int getproctorun(void) {
     struct pstat pst;
