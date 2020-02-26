@@ -102,7 +102,7 @@ int             fork(void);
 int             growproc(int);
 int             kill(int);
 void            pinit(void);
-int		getprocinfo(struct pstat*);
+int		getprocinfo(struct pstat*, int use_lock);
 int 		boostproc(void);
 void            procdump(void);
 void            scheduler(void) __attribute__((noreturn));

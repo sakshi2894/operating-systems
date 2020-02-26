@@ -99,7 +99,7 @@ sys_getprocinfo(void)
   if (argptr(0, (void*)&pst, sizeof(*pst)) < 0) 
     return -1;
   
-  return getprocinfo(pst);
+  return getprocinfo(pst, 1);
 }
 
 int 

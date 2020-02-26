@@ -5,7 +5,6 @@ USER_PROGS := \
 	echo\
 	forktest\
 	grep\
-	test\
 	init\
 	kill\
 	ln\

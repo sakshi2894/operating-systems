@@ -12,7 +12,7 @@ struct {
   struct proc proc[NPROC];
 } ptable;
 
-int getprocinfo(struct pstat* ps);
+int getprocinfo(struct pstat* ps, int use_lock);
 int getproctorun(void);
 static struct proc *initproc;
 
@@ -55,6 +55,18 @@ found:
   p->pid = nextpid++;
   p->priority = 3;
   p->inuse = 0;
+  p->rr_ticks_used = 0;
+  p->level_ticks_used = 0;
+  int i = 0;
+  for (i = 0; i < 4; i++) {
+	  p->wait_ticks[i] = 0;
+  }
+
+  i = 0;
+  for (i = 0; i < 4; i++) {
+          p->ticks[i] = 0;
+  }
+
  
   release(&ptable.lock);
 
@@ -301,7 +313,6 @@ scheduler(void)
             int level = p->priority;
 
             p->wait_ticks[level] = 0;
-            p->inuse = 1;
             p->level_ticks_used = p->level_ticks_used + 1 ;
             p->rr_ticks_used = p->rr_ticks_used + 1;
             p->ticks[level] = p->ticks[level] + 1;
@@ -340,7 +351,7 @@ scheduler(void)
 
 int getproctorun(void) {
     struct pstat pst;
-    getprocinfo(&pst);
+    getprocinfo(&pst, 0);
     int i;
     //TODO: boost a process waiting for a long time.
 
@@ -524,18 +535,26 @@ procdump(void)
   }
 }
 
-int getprocinfo(struct pstat* ps)
+int getprocinfo(struct pstat* ps, int use_lock)
 {
   
   int i = 0;
   struct proc *p;
-  
+  if (use_lock) {
+  	acquire(&ptable.lock);
+  }
+
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
 
         ps -> rr_ticks_used[i] = p->rr_ticks_used;
         ps -> level_ticks_used[i] = p->level_ticks_used;
 	ps -> pid[i] = p->pid;
-	ps -> inuse[i] = p->inuse;
+	if (p->pid == 0) {
+		ps -> inuse[i] = 0;
+	} else {
+		ps -> inuse[i] = 1;
+	}
+	//ps -> inuse[i] = p->inuse;
 	ps -> priority[i] = p -> priority;
 	ps -> state[i] = p->state;
 	
@@ -549,6 +568,10 @@ int getprocinfo(struct pstat* ps)
 	}
 	i++;
   }
+
+  if (use_lock) {
+	  release(&ptable.lock);
+  }
   return 0;
 }
 
@@ -557,6 +580,8 @@ int boostproc(void)
   int level = proc->priority;
   if (level != 3) {
   	proc->priority = level + 1;
+  } else {
+	//return 0;
   }
   proc->rr_ticks_used = 0;
   proc->level_ticks_used = 0;
