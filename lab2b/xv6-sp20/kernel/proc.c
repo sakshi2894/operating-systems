@@ -299,12 +299,13 @@ scheduler(void)
 		    int ps_level = ps->priority;
                     ps->wait_ticks[ps_level] = ps->wait_ticks[ps_level] + 1;
 		    if (ps->wait_ticks[ps_level] >= boost_slices[ps_level]) {
-		        ps->wait_ticks[ps_level] = 0;
+		        //ps->wait_ticks[ps_level] = 0;
 			if (ps_level != 3) {
 				ps->priority = ps_level + 1;
+				ps->wait_ticks[ps_level] = 0;
+				ps->rr_ticks_used = 0;
+				ps->level_ticks_used = 0;
 			}
-			ps->rr_ticks_used = 0;
-			ps->level_ticks_used = 0;
 		    }
 		}
 		j++;
@@ -580,11 +581,9 @@ int boostproc(void)
   int level = proc->priority;
   if (level != 3) {
   	proc->priority = level + 1;
-  } else {
-	//return 0;
-  }
-  proc->rr_ticks_used = 0;
-  proc->level_ticks_used = 0;
-  proc->wait_ticks[level] = 0;
+	proc->rr_ticks_used = 0;
+  	proc->level_ticks_used = 0;
+  	proc->wait_ticks[level] = 0;
+  } 
   return 0;
 }
