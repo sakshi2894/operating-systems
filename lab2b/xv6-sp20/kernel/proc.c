@@ -550,7 +550,7 @@ int getprocinfo(struct pstat* ps, int use_lock)
         ps -> rr_ticks_used[i] = p->rr_ticks_used;
         ps -> level_ticks_used[i] = p->level_ticks_used;
 	ps -> pid[i] = p->pid;
-	if (p->pid == 0) {
+	if (p->state == UNUSED) {
 		ps -> inuse[i] = 0;
 	} else {
 		ps -> inuse[i] = 1;
