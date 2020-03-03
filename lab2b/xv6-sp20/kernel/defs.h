@@ -9,6 +9,7 @@ struct pipe;
 struct proc;
 struct spinlock;
 struct stat;
+struct pstat;
 
 // bio.c
 void            binit(void);
@@ -101,6 +102,8 @@ int             fork(void);
 int             growproc(int);
 int             kill(int);
 void            pinit(void);
+int		getprocinfo(struct pstat*, int use_lock);
+int 		boostproc(void);
 void            procdump(void);
 void            scheduler(void) __attribute__((noreturn));
 void            sched(void);

@@ -1,8 +1,9 @@
 #ifndef _USER_H_
 #define _USER_H_
 
+struct pstat;
 struct stat;
-
+enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 // system calls
 int fork(void);
 int exit(void) __attribute__((noreturn));
@@ -25,6 +26,8 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+int getprocinfo(struct pstat*);
+int boostproc(void);
 
 // user library functions (ulib.c)
 int stat(char*, struct stat*);

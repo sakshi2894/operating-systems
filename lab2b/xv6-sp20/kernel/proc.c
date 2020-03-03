@@ -5,12 +5,15 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "pstat.h"
 
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
 } ptable;
 
+int getprocinfo(struct pstat* ps, int use_lock);
+int getproctorun(void);
 static struct proc *initproc;
 
 int nextpid = 1;
@@ -18,6 +21,11 @@ extern void forkret(void);
 extern void trapret(void);
 
 static void wakeup1(void *chan);
+
+int nextprocind[4] = {0, 0, 0, 0};
+int rr_slices[4] = {64, 4, 2, 1};
+int time_slices[4] = {-1, 32, 16, 8};
+int boost_slices[4] = {640, 320, 160, 80};
 
 void
 pinit(void)
@@ -45,6 +53,21 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
+  p->priority = 3;
+  p->inuse = 0;
+  p->rr_ticks_used = 0;
+  p->level_ticks_used = 0;
+  int i = 0;
+  for (i = 0; i < 4; i++) {
+	  p->wait_ticks[i] = 0;
+  }
+
+  i = 0;
+  for (i = 0; i < 4; i++) {
+          p->ticks[i] = 0;
+  }
+
+ 
   release(&ptable.lock);
 
   // Allocate kernel stack if possible.
@@ -252,38 +275,107 @@ wait(void)
 //  - swtch to start running that process
 //  - eventually that process transfers control
 //      via swtch back to the scheduler.
+
+
 void
 scheduler(void)
 {
-  struct proc *p;
 
-  for(;;){
-    // Enable interrupts on this processor.
-    sti();
+    struct proc *p;
 
-    // Loop over process table looking for process to run.
-    acquire(&ptable.lock);
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
-        continue;
+    for(;;){
+        // Enable interrupts on this processor.
+        sti();
+        acquire(&ptable.lock);
+        int ind = getproctorun();
+        if (ind != -1) {
+            p = ptable.proc + ind;
 
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
-      swtch(&cpu->scheduler, proc->context);
-      switchkvm();
+            //Update wait time for all RUNNABLE processes.
+            struct proc *ps;
+	    int j = 0;
+            for(ps = ptable.proc; ps < &ptable.proc[NPROC]; ps++) {
+		if (j != ind && ps -> state == RUNNABLE) {
+		    int ps_level = ps->priority;
+                    ps->wait_ticks[ps_level] = ps->wait_ticks[ps_level] + 1;
+		    if (ps->wait_ticks[ps_level] >= boost_slices[ps_level]) {
+		        //ps->wait_ticks[ps_level] = 0;
+			if (ps_level != 3) {
+				ps->priority = ps_level + 1;
+				ps->wait_ticks[ps_level] = 0;
+				ps->rr_ticks_used = 0;
+				ps->level_ticks_used = 0;
+			}
+		    }
+		}
+		j++;
+            }
 
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      proc = 0;
+            int level = p->priority;
+
+            p->wait_ticks[level] = 0;
+            p->level_ticks_used = p->level_ticks_used + 1 ;
+            p->rr_ticks_used = p->rr_ticks_used + 1;
+            p->ticks[level] = p->ticks[level] + 1;
+
+
+            if (level != 0 && p->level_ticks_used >= time_slices[level]) {
+                p->wait_ticks[level] = 0;
+                p->priority = level - 1;
+                p->level_ticks_used = 0;
+                p->rr_ticks_used = 0;
+            }
+
+            if (p->rr_ticks_used >= rr_slices[level]) {
+                p->rr_ticks_used = 0;
+                nextprocind[level] = (nextprocind[level] + 1) % NPROC;
+            }
+
+
+            // Switch to chosen process.  It is the process's job
+            // to release ptable.lock and then reacquire it
+            // before jumping back to us.
+            proc = p;
+            switchuvm(p);
+            p->state = RUNNING;
+            swtch(&cpu->scheduler, proc->context);
+            switchkvm();
+
+            // Process is done running for now.
+            // It should have changed its p->state before coming back.
+            proc = 0;
+        }
+        release(&ptable.lock);
     }
-    release(&ptable.lock);
-
-  }
 }
+
+
+int getproctorun(void) {
+    struct pstat pst;
+    getprocinfo(&pst, 0);
+    int i;
+    //TODO: boost a process waiting for a long time.
+
+    // Iterate over list of processes and select highest level proceess with
+    // closes RR number.
+    int level = 3;
+    int num_proc = NPROC;
+
+    int ind;
+    while (level >= 0) {
+        for (i = 0; i < num_proc; i++) {
+            ind = (nextprocind[level] + i) % num_proc;
+            if (pst.state[ind] == RUNNABLE && pst.priority[ind] == level) {
+		nextprocind[level] = ind;
+		return ind;
+            }
+        }
+        level = level - 1;
+    }
+
+    return -1;
+}
+
 
 // Enter scheduler.  Must hold only ptable.lock
 // and have changed proc->state.
@@ -352,6 +444,7 @@ sleep(void *chan, struct spinlock *lk)
   proc->chan = chan;
   proc->state = SLEEPING;
   sched();
+
 
   // Tidy up.
   proc->chan = 0;
@@ -443,4 +536,54 @@ procdump(void)
   }
 }
 
+int getprocinfo(struct pstat* ps, int use_lock)
+{
+  
+  int i = 0;
+  struct proc *p;
+  if (use_lock) {
+  	acquire(&ptable.lock);
+  }
 
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+
+        ps -> rr_ticks_used[i] = p->rr_ticks_used;
+        ps -> level_ticks_used[i] = p->level_ticks_used;
+	ps -> pid[i] = p->pid;
+	if (p->state == UNUSED) {
+		ps -> inuse[i] = 0;
+	} else {
+		ps -> inuse[i] = 1;
+	}
+	//ps -> inuse[i] = p->inuse;
+	ps -> priority[i] = p -> priority;
+	ps -> state[i] = p->state;
+	
+	int j = 0;
+	for (j = 0; j < 4; j++) {
+	  ps -> ticks[i][j] = p -> ticks[j];
+	}
+	j = 0;
+	for (j = 0; j < 4; j++) {
+	  ps -> wait_ticks[i][j] = p -> wait_ticks[j];
+	}
+	i++;
+  }
+
+  if (use_lock) {
+	  release(&ptable.lock);
+  }
+  return 0;
+}
+
+int boostproc(void) 
+{
+  int level = proc->priority;
+  if (level != 3) {
+  	proc->priority = level + 1;
+	proc->rr_ticks_used = 0;
+  	proc->level_ticks_used = 0;
+  	proc->wait_ticks[level] = 0;
+  } 
+  return 0;
+}
