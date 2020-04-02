@@ -34,7 +34,7 @@ pthread_t *mapper_pool;
 pthread_t *reducer_pool;
 char** file_list;
 int global_file_ptr = 0;
-pthread_mutex_t file_mutex;
+
 Mapper mapper;
 Reducer reducer;
 Partitioner partitioner;
@@ -42,6 +42,8 @@ Combiner combiner;
 KeyList** combine_ds;
 KeyList** reduce_ds;
 
+pthread_mutex_t file_mutex;
+pthread_mutex_t *partition_mutexs;
 // Method definitions.
 
 
@@ -115,6 +117,9 @@ void MR_EmitToReducer(char *key, char *value) {
   int partition_idx = partitioner(key, reducers_num);
 
   //printf("Partition: %d\tMR_EmitToReducer\t key: %s\tvalue: %s\n", partition_idx, key, value);
+
+
+  pthread_mutex_lock(&partition_mutexs[partition_idx]);
   KeyList* keys_head = reduce_ds[partition_idx];
   ValueList* value_node = create_value_node(value);
   KeyList* key_node = find_in_list(keys_head, key);
@@ -130,6 +135,7 @@ void MR_EmitToReducer(char *key, char *value) {
     key_node -> valueList = value_node;
     value_node -> next = value_head;
   }
+  pthread_mutex_unlock(&partition_mutexs[partition_idx]);
 
 }
 
@@ -215,9 +221,16 @@ void *combiner_wrapper() {
   KeyList * keyList = combine_ds[thread_index];
   while (keyList != NULL) {
     //printf("Combining key: %s\n", keyList -> key_name);
+
+    KeyList *next = keyList -> next;
     combiner(keyList->key_name, CombineGetNext);
+
+    //clear the key before moving on.
+    free(keyList -> key_name);
+    free(keyList);
     // We are done with this key, moving onto the next.
-    keyList = keyList -> next;
+    combine_ds[thread_index] = next;
+    keyList = next;
   }
   return NULL;
 }
@@ -245,7 +258,7 @@ void* map_wrapper() {
     if (combiner != NULL) {
       combiner_wrapper();
     }
-   }
+  }
 }
 
 void* reduce_wrapper() {
@@ -253,9 +266,16 @@ void* reduce_wrapper() {
   KeyList * keyList = reduce_ds[thread_index];
   while (keyList != NULL) {
     //printf("Combining key: %s\n", keyList -> key_name);
+    KeyList *next = keyList -> next;
     reducer(keyList->key_name, NULL, ReduceGetNext, thread_index);
     // We are done with this key, moving onto the next.
-    keyList = keyList -> next;
+
+    //clear the key before moving on.
+    free(keyList -> key_name);
+    free(keyList);
+    // We are done with this key, moving onto the next.
+    reduce_ds[thread_index] = next;
+    keyList = next;
   }
   return NULL;
 }
@@ -287,11 +307,41 @@ void init_reduce_threads() {
 }
 
 void init_combine_ds() {
-    combine_ds = (KeyList **) malloc(mappers_num * sizeof(KeyList *));
+  combine_ds = (KeyList **) malloc(mappers_num * sizeof(KeyList *));
+  int i;
+  for (i = 0; i < mappers_num; i++) {
+    combine_ds[i] = NULL;
+  }
 }
 
 void init_reduce_ds() {
-    reduce_ds = (KeyList **) malloc(reducers_num * sizeof(KeyList *));
+  reduce_ds = (KeyList **) malloc(reducers_num * sizeof(KeyList *));
+  int i;
+  for (i = 0; i < reducers_num; i++) {
+    reduce_ds[i] = NULL;
+  }
+}
+
+void free_memory() {
+  int i;
+  for (i = 0; i < file_num; i++) {
+    free(file_list[i]);
+  }
+  free(file_list);
+
+  for (i = 0; i  < mappers_num; i++) {
+    free(combine_ds[i]);
+  }
+  free(combine_ds);
+
+  for (i = 0; i  < reducers_num; i++) {
+    free(reduce_ds[i]);
+  }
+  free(reduce_ds);
+
+  free(mapper_pool);
+  free(reducer_pool);
+  free(partition_mutexs);
 }
 
 void MR_Run(int argc, char *argv[],
@@ -328,6 +378,10 @@ void MR_Run(int argc, char *argv[],
 
   // Init lock before map threads.
   pthread_mutex_init(&file_mutex, NULL);
+  partition_mutexs = (pthread_mutex_t *) malloc(num_reducers * sizeof(pthread_mutex_t));
+  for (i = 0; i < reducers_num; i++) {
+    pthread_mutex_init(&partition_mutexs[i], NULL);
+  }
 
   // Init mapper threads.
   init_map_threads();
@@ -340,4 +394,6 @@ void MR_Run(int argc, char *argv[],
 
   // Wait for reducer threads to finish.
   wait_threads(reducer_pool, reducers_num);
+
+  free_memory();
 }
