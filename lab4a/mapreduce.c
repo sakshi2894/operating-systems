@@ -86,7 +86,7 @@ void MR_EmitToCombiner(char *key, char *value) {
   // push to combiner DS.
   int thread_idx = get_thread_index(mapper_pool, mappers_num);
 
-  printf("Thread: %d\tMR_EmitToCombiner\t key: %s\tvalue: %s\n", thread_idx, key, value);
+  //printf("Thread: %d\tMR_EmitToCombiner\t key: %s\tvalue: %s\n", thread_idx, key, value);
   KeyList* keys_head = combine_ds[thread_idx];
   ValueList* value_node = create_value_node(value);
   KeyList* key_node = find_in_list(keys_head, key);
@@ -114,7 +114,7 @@ void MR_EmitToReducer(char *key, char *value) {
   //TODO: Check conversion
   int partition_idx = partitioner(key, reducers_num);
 
-  printf("Partition: %d\tMR_EmitToReducer\t key: %s\tvalue: %s\n", partition_idx, key, value);
+  //printf("Partition: %d\tMR_EmitToReducer\t key: %s\tvalue: %s\n", partition_idx, key, value);
   KeyList* keys_head = reduce_ds[partition_idx];
   ValueList* value_node = create_value_node(value);
   KeyList* key_node = find_in_list(keys_head, key);
@@ -148,7 +148,7 @@ int get_thread_index(pthread_t *thread_pool, int size) {
       return i;
     }
   }
-  printf("Thread not found\n");
+  //printf("Thread not found\n");
   return -1;
 }
 
@@ -266,7 +266,7 @@ void init_map_threads() {
   for (i = 0; i < mappers_num; i++) {
     pthread_create(&mapper_pool[i], NULL, map_wrapper, NULL);
   }
-  printf("Mapper pool created\n");
+  //printf("Mapper pool created\n");
 }
 
 void wait_threads(pthread_t* thread_pool, int size) {
@@ -274,7 +274,7 @@ void wait_threads(pthread_t* thread_pool, int size) {
   for (i = 0; i < size; i++) {
     pthread_join(thread_pool[i], NULL);
   }
-  printf("Mappers are done.\n");
+  //printf("Mappers are done.\n");
 }
 
 void init_reduce_threads() {
@@ -283,7 +283,7 @@ void init_reduce_threads() {
   for (i = 0; i < reducers_num; i++) {
     pthread_create(&reducer_pool[i], NULL, reduce_wrapper, NULL);
   }
-  printf("Reducer pool created\n");
+  //printf("Reducer pool created\n");
 }
 
 void init_combine_ds() {
@@ -317,7 +317,7 @@ void MR_Run(int argc, char *argv[],
   int i;
   for (i = 1; i < argc; i++) {
     file_list[i - 1] = copy_str(argv[i]);
-    printf("filename: %s\n", file_list[i - 1]);
+    //printf("filename: %s\n", file_list[i - 1]);
   }
 
   // Init data structures for combine phase.
