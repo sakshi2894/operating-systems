@@ -67,7 +67,6 @@ char*           kalloc(void);
 void            kfree(char*);
 void            kinit(void);
 int             dump_allocated(int*, int);
-
 // kbd.c
 void            kbdintr(void);
 
@@ -169,7 +168,6 @@ pde_t*          copyuvm(pde_t*, uint);
 void            switchuvm(struct proc*);
 void            switchkvm(void);
 int             copyout(pde_t*, uint, void*, uint);
-int             walkandchange(char*, int, int);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

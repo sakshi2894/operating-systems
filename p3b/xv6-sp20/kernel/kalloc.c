@@ -7,7 +7,9 @@
 #include "param.h"
 #include "mmu.h"
 #include "spinlock.h"
+#include "rand.h"
 
+int get_freelist_size();
 struct run {
   struct run *next;
 };
@@ -17,9 +19,8 @@ struct {
   struct run *freelist;
 } kmem;
 
-int alloc_history[10000];
+int alloc_history[1000];
 int hislen = 0;
-
 extern char end[]; // first address after kernel loaded from ELF file
 
 // Initialize free list of physical pages.
@@ -32,13 +33,6 @@ kinit(void)
   p = (char*)PGROUNDUP((uint)end);
   for(; p + PGSIZE <= (char*)PHYSTOP; p += PGSIZE)
     kfree(p);
-
-  //Skipping alternate nodes
-  struct run *r = kmem.freelist;
-  while(r && r->next) {
-    r->next = r->next->next;
-    r = r->next;
-  }
 }
 
 void remove_from_history(int pgno) {
@@ -80,19 +74,58 @@ char*
 kalloc(void)
 {
   struct run *r;
+
   acquire(&kmem.lock);
+  
   r = kmem.freelist;
+  int ind = 0;
+  
+  int size = get_freelist_size();
+  if(size == 0)
+    return (char*)r;
+  int x = xv6_rand();
+  int y = x % size;
+ 
+  struct run *prev, *temp;
+  prev = kmem.freelist;
+  temp = kmem.freelist;
+
+  while (ind != y) {
+	  prev = temp;
+  	temp = temp->next;
+	  ind++;
+  }
+
+  r = temp;
+  if (ind != 0) {
+    if (prev && temp) {
+        prev->next = temp->next;
+    }
+  }
+
   if(r) {
-    kmem.freelist = r->next;
-    //Storing allocated frame
+    if (ind == 0) {// r is at the head
+    	kmem.freelist = r->next;
+    }
     alloc_history[hislen++] = (int)r;
   }
   release(&kmem.lock);
   return (char*)r;
 }
 
-int 
-dump_allocated(int *arr, int n) 
+int get_freelist_size() {
+	struct run *temp;
+	int size = 0;
+	temp = kmem.freelist;
+	while (temp) {
+		temp = temp->next;
+		size++;
+	}
+	return size;
+}
+
+int
+dump_allocated(int *arr, int n)
 {
   if(n > hislen) {
     //Dont have enough history

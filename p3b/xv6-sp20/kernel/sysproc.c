@@ -56,40 +56,6 @@ sys_sbrk(void)
 }
 
 int
-sys_mprotect(void)
-{
-  char *addr;
-  int len;
-  if(argptr(0, &addr, sizeof(addr)) < 0 || argint(1, &len) < 0)
-    return -1;
-  if(len <= 0)
-    return -1;
-  return walkandchange(addr, len, 1);
-}
-
-int
-sys_munprotect(void)
-{
-  char *addr;
-  int len;
-  if(argptr(0, &addr, sizeof(addr)) < 0 || argint(1, &len) < 0)
-    return -1;
-  if(len <= 0)
-    return -1;
-  return walkandchange(addr, len, 0);
-}
-
-int
-sys_dump_allocated(void)
-{
-  int *arr;
-  int n;
-  if(argptr(0, (void*)&arr, sizeof(*arr)) < 0 || argint(1, &n) < 0)
-    return -1;
-  return dump_allocated(arr, n);
-}
-
-int
 sys_sleep(void)
 {
   int n;
@@ -122,3 +88,16 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+
+int
+sys_dump_allocated(void)
+{
+  int *arr;
+  int n;
+  if(argptr(0, (void*)&arr, sizeof(*arr)) < 0 || argint(1, &n) < 0)
+    return -1;
+  return dump_allocated(arr, n);
+}
+
+
