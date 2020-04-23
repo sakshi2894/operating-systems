@@ -303,6 +303,7 @@ copyuvm(pde_t *pgdir, uint sz)
   pte_t *pte;
   uint pa, i;
   char *mem;
+  int rwperm;
 
   if((d = setupkvm()) == 0)
     return 0;
@@ -315,7 +316,9 @@ copyuvm(pde_t *pgdir, uint sz)
     if((mem = kalloc()) == 0)
       goto bad;
     memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(d, (void*)i, PGSIZE, PADDR(mem), PTE_W|PTE_U) < 0)
+    //Extracting existing R/W permission
+    rwperm = *pte & PTE_W;
+    if(mappages(d, (void*)i, PGSIZE, PADDR(mem), rwperm|PTE_U) < 0)
       goto bad;
   }
   return d;
@@ -362,5 +365,46 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
     buf += n;
     va = va0 + PGSIZE;
   }
+  return 0;
+}
+
+int walkandchange(char *addr, int len, int readonly)
+{
+  if ((uint)addr % PGSIZE != 0)
+  {
+    //Not page aligned
+    return -1;
+  }
+  uint size = proc->sz;
+  if ( (((uint)addr) + (len * PGSIZE)) >= size)
+  {
+    //invalid addrspace
+    return -1;
+  }
+  pte_t *pte;
+  pde_t *pgdir = proc->pgdir;
+  int i;
+  char *A = addr;
+  for(i=0; i<len; i++) {
+    pte = walkpgdir(pgdir, A, 0);
+    if(pte == 0 || (*pte & PTE_U) == 0 || (*pte & PTE_P) == 0) {
+      //One of the page in range is invalid
+      return -1;
+    }
+    A += PGSIZE;
+  }
+  while(len--)
+  {
+    pte = walkpgdir(pgdir, addr, 0);
+    if(readonly == 1) {
+      //Turning off write bit
+      *pte = ((*pte) & (~PTE_W));
+    } else {
+      //Turning on write bit
+      *pte = ((*pte) | (PTE_W));
+    }
+    addr += PGSIZE;
+  }
+  lcr3(PADDR(proc->pgdir));
   return 0;
 }
