@@ -2,12 +2,10 @@
 
 #include <pthread.h>
 #include <semaphore.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 
-#define NUM_KEY_LISTS 997
+#define NUM_KEY_LISTS 3001
 
 // Structure representing a node in Value list
 typedef struct ValueNode {
@@ -22,6 +20,7 @@ typedef struct KeyNode {
   struct KeyNode *next_key;
 } KeyNode;
 
+// Structure representing a node in Key Value list
 typedef struct KeyValueNode {
   char *key;
   char *value;
@@ -35,12 +34,11 @@ int f_index;
 pthread_mutex_t f_index_lock;
 int map_workers;
 pthread_t *map_threads;
-KeyNode ***key_lists;
+KeyNode ***combine_ds;
 int mappers_done;
 Mapper map_fun;
 Combiner combine_fun;
-ValueNode* valueNodeToFree;
-KeyValueNode* keyValueNodeToFree;
+ValueNode *valueNodeToFree;
 
 //Reduce state variables
 pthread_mutex_t *buffer_locks;
@@ -48,9 +46,8 @@ sem_t *sem_filled_locks;
 Partitioner partition_fun;
 int reduce_workers;
 pthread_t *reduce_threads;
-
-KeyValueNode **buffer;
-KeyValueNode **partial_lists;
+KeyValueNode **reduce_buffer;
+KeyValueNode ***reduce_partial;
 Reducer reduce_fun;
 
 // The Default Hash function
@@ -81,11 +78,17 @@ int FindReducerThreadIndex() {
   return i;
 }
 
+//Utility function to make a copy of char array
+char *CopyStr(char *data) {
+  char *copy = (char *)malloc((strlen(data) + 1) * sizeof(char));  //Freed
+  strcpy(copy, data);
+  return copy;
+}
+
 // Allocates a new Key Node with given key
 KeyNode *AllocateKeyNode(char *key) {
   KeyNode *key_node = (KeyNode *)malloc(sizeof(KeyNode));
-  key_node->key = (char *)malloc((strlen(key) + 1) * sizeof(char));
-  strcpy(key_node->key, key);
+  key_node->key = CopyStr(key);
   key_node->value_list_head = NULL;
   key_node->next_key = NULL;
   return key_node;
@@ -94,20 +97,16 @@ KeyNode *AllocateKeyNode(char *key) {
 // Allocates a new Value Node with given value
 ValueNode *AllocateValueNode(char *value) {
   ValueNode *value_node = (ValueNode *)malloc(sizeof(ValueNode));
-  value_node->value = (char *)malloc((strlen(value) + 1) * sizeof(char));
-  strcpy(value_node->value, value);
+  value_node->value = CopyStr(value);
   value_node->next_value = NULL;
   return value_node;
 }
 
+// Allocates a new KeyValue Node with given key, value
 KeyValueNode *AllocateKeyValueNode(char *key, char *value) {
   KeyValueNode *key_value_node = (KeyValueNode *)malloc(sizeof(KeyValueNode));
-  key_value_node->key = (char *)malloc((strlen(key) + 1) * sizeof(char));
-  strcpy(key_value_node->key, key);
-
-  key_value_node->value = (char *)malloc((strlen(value) + 1) * sizeof(char));
-  strcpy(key_value_node->value, value);
-
+  key_value_node->key = CopyStr(key);
+  key_value_node->value = CopyStr(value);
   key_value_node->next = NULL;
   return key_value_node;
 }
@@ -132,10 +131,11 @@ KeyValueNode *FindKeyValueNode(KeyValueNode *key_value_head, char *key) {
   return key_value_head;
 }
 
-void FreeStringEnd(char* data) {
-  ValueNode* node = (ValueNode *) malloc(sizeof(ValueNode));
-  node -> value = data;
-  node -> next_value = NULL;
+// Stores the lists of strings which can only be cleared at the end.
+void FreeStringEnd(char *data) {
+  ValueNode *node = (ValueNode *)malloc(sizeof(ValueNode));  //Freed
+  node->value = data;
+  node->next_value = NULL;
 
   if (valueNodeToFree == NULL) {
     valueNodeToFree = node;
@@ -143,53 +143,61 @@ void FreeStringEnd(char* data) {
     node->next_value = valueNodeToFree;
     valueNodeToFree = node;
   }
-
 }
 
 // Initializing the Hash Table for each Map thread
 void AllocateMapHashTable() {
-  key_lists = (KeyNode ***)malloc(map_workers * sizeof(KeyNode **));  //Freed
+  combine_ds = (KeyNode ***)malloc(map_workers * sizeof(KeyNode **));  //Freed
   int i, j;
   for (i = 0; i < map_workers; i++) {
-    key_lists[i] = (KeyNode **)malloc(NUM_KEY_LISTS * sizeof(KeyNode *));  //Freed
+    combine_ds[i] = (KeyNode **)malloc(NUM_KEY_LISTS * sizeof(KeyNode *));  //Freed
     for (j = 0; j < NUM_KEY_LISTS; j++) {
-      key_lists[i][j] = NULL;
+      combine_ds[i][j] = NULL;
     }
   }
-  //printf("Initialized Mapper Hash Table...\n");
+}
+
+// Initializing the Hash Table for each Reduce thread
+void AllocateReduceHashTable() {
+  reduce_partial = (KeyValueNode ***)malloc(reduce_workers * sizeof(KeyValueNode **));  //Freed
+  int i, j;
+  for (i = 0; i < reduce_workers; i++) {
+    reduce_partial[i] = (KeyValueNode **)malloc(NUM_KEY_LISTS * sizeof(KeyValueNode *));  //Freed
+    for (j = 0; j < NUM_KEY_LISTS; j++) {
+      reduce_partial[i][j] = NULL;
+    }
+  }
 }
 
 // Freeing up memory used by Hash Table of each Map thread
 void FreeMapHashTable() {
   int i;
   for (i = 0; i < map_workers; i++) {
-    free(key_lists[i]);
+    free(combine_ds[i]);
   }
-  free(key_lists);
+  free(combine_ds);
 }
 
+// Freeing up memory used by Hash Table of each Reduce thread
 void FreeReduceHashTable() {
   int i;
   for (i = 0; i < reduce_workers; i++) {
-    free(partial_lists[i]);
-    free(buffer[i]);
+    free(reduce_partial[i]);
   }
-  free(partial_lists);
-  free(buffer);
+  free(reduce_partial);
 }
 
 // Adding key and value to the hash table
 void MR_EmitToCombiner(char *key, char *value) {
-  //printf("Emitted to Combiner, K: %s, V: %s\n", key, value);
   int worker_idx = FindMapperThreadIndex();
   int hash_idx = MR_DefaultHashPartition(key, NUM_KEY_LISTS);
-  //printf("worker: %d, hash: %d\n", worker_idx, hash_idx);
-  KeyNode *key_node = FindKeyNode(key_lists[worker_idx][hash_idx], key);
+
+  KeyNode *key_node = FindKeyNode(combine_ds[worker_idx][hash_idx], key);
   if (key_node == NULL) {
     // Inserting new key at front
     key_node = AllocateKeyNode(key);  //Freed
-    key_node->next_key = key_lists[worker_idx][hash_idx];
-    key_lists[worker_idx][hash_idx] = key_node;
+    key_node->next_key = combine_ds[worker_idx][hash_idx];
+    combine_ds[worker_idx][hash_idx] = key_node;
   }
   // Inserting value count at front
   ValueNode *value_node = AllocateValueNode(value);  //Freed
@@ -199,21 +207,17 @@ void MR_EmitToCombiner(char *key, char *value) {
 
 // getnext function for Combine
 char *CombineIterator(char *key) {
-  //printf("combineIterator for %s\n", key);
   int worker_idx = FindMapperThreadIndex();
   int hash_idx = MR_DefaultHashPartition(key, NUM_KEY_LISTS);
   //printf("# %d %d\n", worker_idx, hash_idx);
-  KeyNode *key_node = FindKeyNode(key_lists[worker_idx][hash_idx], key);
+  KeyNode *key_node = FindKeyNode(combine_ds[worker_idx][hash_idx], key);
   if (key_node == NULL)
     return NULL;
   ValueNode *value_list_head = key_node->value_list_head;
-  //printf("@ %s\n", key_node->key);
   if (value_list_head == NULL)
     return NULL;
   ValueNode *next_value = value_list_head->next_value;
   char *value = value_list_head->value;
-  //printf("! %s\n", value);
-  //free(iterator->value);  //TODO Modify free here. should be done here
   FreeStringEnd(value);
   free(value_list_head);
   key_node->value_list_head = next_value;
@@ -226,13 +230,12 @@ void IterateKeysToCombine() {
   KeyNode *key_head;
   int i;
   for (i = 0; i < NUM_KEY_LISTS; i++) {
-    while ((key_head = key_lists[worker_idx][i]) != NULL) {
+    while ((key_head = combine_ds[worker_idx][i]) != NULL) {
       KeyNode *next_key = key_head->next_key;
-      //printf("Combining key: %s from worker: %d\n", key_head->key, FindMapperThreadIndex());
       combine_fun(key_head->key, &CombineIterator);
       free(key_head->key);
       free(key_head);
-      key_lists[worker_idx][i] = next_key;
+      combine_ds[worker_idx][i] = next_key;
     }
   }
 }
@@ -248,84 +251,77 @@ void *MapWrapper(void *args) {
     pthread_mutex_unlock(&f_index_lock);
     if (idx == num_files) {
       // All files have been processed
-      //printf("Mapper/Combiner %d exiting\n", FindMapperThreadIndex());
       break;
     }
     map_fun(filenames[idx]);
-    //printf("Mapper for file no: %d completed\n", idx);
     if (combine_fun != NULL) {
       IterateKeysToCombine();
     }
-    //printf("Combiner for file no: %d completed\n", idx);
   }
   return NULL;
 }
 
-// Adds to buffer DS
+// Adds to reduce_buffer DS
 void MR_EmitToReducer(char *key, char *value) {
   unsigned long reduce_hash_idx = partition_fun(key, reduce_workers);
-  //printf("Emitted to Reducer, K: %s, V: %s, W: %ld\n", key, value, reduce_hash_idx);
 
   KeyValueNode *key_value_node = AllocateKeyValueNode(key, value);  // Freed
   pthread_mutex_lock(&buffer_locks[reduce_hash_idx]);
 
-  //printf("uploaded %s and %s\n", key, value);
-
   // Produce
-  key_value_node->next = buffer[reduce_hash_idx];
-  buffer[reduce_hash_idx] = key_value_node;
+  key_value_node->next = reduce_buffer[reduce_hash_idx];
+  reduce_buffer[reduce_hash_idx] = key_value_node;
 
   sem_post(&sem_filled_locks[reduce_hash_idx]);
   pthread_mutex_unlock(&buffer_locks[reduce_hash_idx]);
 }
 
-// Adds to partial_lists DS
+// Adds to reduce_partial DS
 void MR_EmitReducerState(char *key, char *state, int partition_number) {
-  KeyValueNode *keyValueNode = FindKeyValueNode(partial_lists[partition_number], key);
+  int hash_idx = MR_DefaultHashPartition(key, NUM_KEY_LISTS);
+  KeyValueNode *keyValueNode = FindKeyValueNode(reduce_partial[partition_number][hash_idx], key);
   if (keyValueNode != NULL) {
-    //Update it with new value.
+    // Update it with new value.
     free(keyValueNode->value);
-    keyValueNode->value = (char *)malloc((strlen(state) + 1) * sizeof(char));
-    strcpy(keyValueNode->value, state);
+    keyValueNode->value = CopyStr(state);
   } else {
-    // Else add a new node with given value.;
-    //printf("Creating new node  for key: %s, pnum: %d\n", key, partition_number);
+    // Else add a new node with given value.
     KeyValueNode *newNode = AllocateKeyValueNode(key, state);  // Freed
-    newNode->next = partial_lists[partition_number];
-    partial_lists[partition_number] = newNode;
+    newNode->next = reduce_partial[partition_number][hash_idx];
+    reduce_partial[partition_number][hash_idx] = newNode;
   }
 }
 
-// getstate function for Reducer
+// get_state() for Reducer
 char *ReduceStateIterator(char *key, int partition_number) {
   // Find the key in the data structure.
-  //printf("RSI, key: %s, partition_number: %d\n", key, partition_number);
-  KeyValueNode *keyValueNode = FindKeyValueNode(partial_lists[partition_number], key);
-  if (keyValueNode == NULL)  //TODO check if this cond can be removed
+  int hash_idx = MR_DefaultHashPartition(key, NUM_KEY_LISTS);
+  KeyValueNode *keyValueNode = FindKeyValueNode(reduce_partial[partition_number][hash_idx], key);
+  if (keyValueNode == NULL)
     return NULL;
-  //printf("RSI value: %s, partition_number: %d\n", keyValueNode->value, partition_number);
-  //FreeStringEnd(keyValueNode->value);
+
   return keyValueNode->value;
 }
 
-// getnext() function for Reducer
+// get_next() for Reducer
 char *ReduceIterator(char *key, int partition_number) {
   char *value = NULL;
   pthread_mutex_lock(&buffer_locks[partition_number]);
-  //printf("Got lock in iterator\n");
-  if (mappers_done != 1 || buffer[partition_number] != NULL) {
-    KeyValueNode *keyValueNode = buffer[partition_number];
+  if (mappers_done != 1 || reduce_buffer[partition_number] != NULL) {
+    KeyValueNode *keyValueNode = reduce_buffer[partition_number];
     KeyValueNode *prev = NULL;
 
     while (keyValueNode != NULL) {
       if (strcmp(keyValueNode->key, key) == 0) {
         if (prev == NULL) {  //This is the first node.
-          buffer[partition_number] = keyValueNode->next;
+          reduce_buffer[partition_number] = keyValueNode->next;
         } else {
           prev->next = keyValueNode->next;
         }
         value = keyValueNode->value;
-        //free(keyValueNode->key);
+
+        // Free resources
+        free(keyValueNode->key);
         FreeStringEnd(value);
         free(keyValueNode);
         break;
@@ -340,47 +336,40 @@ char *ReduceIterator(char *key, int partition_number) {
   return value;
 }
 
-// For each unique key, call reduce
+// For each key, call Reduce
 void *ReduceWrapper(void *args) {
   int idx = FindReducerThreadIndex();
-  //printf("# %d\n", idx);
+
   while (1) {
-    //printf("Reducer Number %d waiting for data\n", idx);
     sem_wait(&sem_filled_locks[idx]);
-    if (mappers_done == 1 && buffer[idx] == NULL) {
+    if (mappers_done == 1 && reduce_buffer[idx] == NULL) {
       //Run reduce for all the keys of this partition
-      //printf("All mappers are done, exiting now by: %d\n", idx);
-      KeyValueNode *key_value_head;
-      while ((key_value_head = partial_lists[idx]) != NULL) {
-        KeyValueNode *next_key_value = key_value_head->next;
-        reduce_fun(key_value_head->key, &ReduceStateIterator, &ReduceIterator, idx);
-        free(key_value_head->key);
-        FreeStringEnd(key_value_head->value);
-        free(key_value_head);
-        partial_lists[idx] = next_key_value;
+      int i;
+      for (i = 0; i < NUM_KEY_LISTS; i++) {
+        KeyValueNode *key_value_head;
+        while ((key_value_head = reduce_partial[idx][i]) != NULL) {
+          KeyValueNode *next_key_value = key_value_head->next;
+          reduce_fun(key_value_head->key, &ReduceStateIterator, &ReduceIterator, idx);
+          reduce_partial[idx][i] = next_key_value;
+
+          // Free resources
+          free(key_value_head->key);
+          free(key_value_head->value);
+          free(key_value_head);
+        }
       }
-      //printf("Reducer %d exiting\n", idx);
+
       break;
     }
-    //printf("Reducer Number %d has data\n", idx);
-    //printf("downloaded %s and %s\n", buffer[idx]->key, buffer[idx]->value);
-    //reduce_fun(buffer[idx]->key, &ReduceStateIterator, &ReduceIterator, idx);
-    //free(buffer[idx]);
-    //buffer[idx] = NULL;
-    //printf("Reducer Number %d has finished processing its data\n", idx);
 
-    //printf("Waiting for mutex\n");
     pthread_mutex_lock(&buffer_locks[idx]);
-    //printf("Got lock\n");
-    char *key = buffer[idx]->key;
+    char *key = CopyStr(reduce_buffer[idx]->key);  //Freed
     pthread_mutex_unlock(&buffer_locks[idx]);
 
     reduce_fun(key, &ReduceStateIterator, &ReduceIterator, idx);
     free(key);
   }
 
-  //free(buffer[idx]);
-  //buffer[idx] = NULL;
   return NULL;
 }
 
@@ -388,22 +377,26 @@ void *ReduceWrapper(void *args) {
 void FreeMapResources() {
   free(map_threads);
   FreeMapHashTable();
-
   free(filenames);
+}
+
+// Freeing resources used my Reducers
+void FreeReduceResources() {
+  free(reduce_threads);
+  free(sem_filled_locks);
+  free(buffer_locks);
+  free(reduce_buffer);
+  FreeReduceHashTable();
+}
+
+// Finally Freeing the value nodes accumulated in valueNodeToFree list
+void FreeAllValueNodes() {
   while (valueNodeToFree != NULL) {
-    ValueNode* next = valueNodeToFree->next_value;
+    ValueNode *next = valueNodeToFree->next_value;
     free(valueNodeToFree->value);
     free(valueNodeToFree);
     valueNodeToFree = next;
   }
-}
-
-void FreeReduceResources() {
-  free(reduce_threads);
-
-  free(sem_filled_locks);
-  free(buffer_locks);
-  FreeReduceHashTable();
 }
 
 // Creating workers to run Reducers
@@ -413,7 +406,6 @@ void RunReducerThreadPool() {
   for (i = 0; i < reduce_workers; i++) {
     pthread_create(&reduce_threads[i], NULL, ReduceWrapper, NULL);
   }
-  //printf("Launched all reducer threads...\n");
 }
 
 // Creating workers to run Mappers
@@ -424,7 +416,6 @@ void RunMapperThreadPool() {
   for (i = 0; i < map_workers; i++) {
     pthread_create(&map_threads[i], NULL, MapWrapper, NULL);
   }
-  //printf("Launched all mapper threads...\n");
 }
 
 //Waits for Mappers to finish executing
@@ -433,7 +424,6 @@ void WaitForMappersToComplete() {
   for (i = 0; i < map_workers; i++) {
     pthread_join(map_threads[i], NULL);
   }
-  //printf("Mappers are done\n");
   mappers_done = 1;
 }
 
@@ -441,11 +431,28 @@ void WaitForMappersToComplete() {
 void WaitForReducersToComplete() {
   int i;
   for (i = 0; i < reduce_workers; i++) {
-    //printf("Waiting for reducer %d\n", i);
     sem_post(&sem_filled_locks[i]);
     pthread_join(reduce_threads[i], NULL);
   }
-  //printf("Reducers are done\n");
+}
+
+// Populates the filenames in global array
+void InitFileNames(char *argv[]) {
+  filenames = (char **)malloc(num_files * sizeof(char *));  //Freed
+  int i;
+  for (i = 0; i < num_files; i++) {
+    filenames[i] = argv[i + 1];
+  }
+}
+
+// Initializes data structures for Reduce
+void InitReduceDS() {
+  int i;
+  reduce_buffer = (KeyValueNode **)malloc(reduce_workers * sizeof(KeyValueNode *));
+  for (i = 0; i < reduce_workers; i++) {
+    reduce_buffer[i] = NULL;
+  }
+  AllocateReduceHashTable();
 }
 
 // Assigning values to the global variables
@@ -460,29 +467,19 @@ void InitializeGlobalVariables(int argc, char *argv[], int num_mappers, int num_
   reduce_fun = reduce;
   f_index = 0;
   mappers_done = 0;
-
   num_files = argc - 1;
-  filenames = (char **)malloc(num_files * sizeof(char *));  //Freed
-  int i;
-  for (i = 0; i < num_files; i++) {
-    filenames[i] = argv[i + 1];
-  }
 
-  buffer_locks = (pthread_mutex_t *)malloc(reduce_workers * sizeof(pthread_mutex_t));  // freed
-  sem_filled_locks = (sem_t *)malloc(reduce_workers * sizeof(sem_t));                  // freed
+  InitFileNames(argv);
+
+  int i;
+  buffer_locks = (pthread_mutex_t *)malloc(reduce_workers * sizeof(pthread_mutex_t));  // Freed
+  sem_filled_locks = (sem_t *)malloc(reduce_workers * sizeof(sem_t));                  // Freed
   for (i = 0; i < reduce_workers; i++) {
     pthread_mutex_init(&buffer_locks[i], NULL);
     sem_init(&sem_filled_locks[i], 0, 0);
   }
-  buffer = (KeyValueNode **)malloc(reduce_workers * sizeof(KeyValueNode *));
-  for (i = 0; i < reduce_workers; i++) {
-    buffer[i] = NULL;
-  }
 
-  partial_lists = (KeyValueNode **)malloc(reduce_workers * sizeof(KeyValueNode *));
-  for (i = 0; i < reduce_workers; i++) {
-    partial_lists[i] = NULL;
-  }
+  InitReduceDS();
 }
 
 // Framework entry
@@ -501,6 +498,5 @@ void MR_Run(int argc, char *argv[], Mapper map, int num_mappers, Reducer reduce,
 
   FreeMapResources();
   FreeReduceResources();
-
+  FreeAllValueNodes();
 }
-

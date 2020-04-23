@@ -1,11 +1,8 @@
-//
-// Created by Sakshi Bansal on 02/04/20.
-//
-
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #include "mapreduce.h"
 
 void Map(char *file_name) {
@@ -25,13 +22,14 @@ void Map(char *file_name) {
 }
 
 void Combine(char *key, CombineGetter get_next) {
+  //printf("Combine called for %s\n", key);
   int count = 0;
   char *value;
   while ((value = get_next(key)) != NULL) {
-    count ++; // Emmited Map values are "1"s
+    count++;  // Emmited Map values are "1"s
   }
   // Convert integer (count) to string (value)
-  value = (char*)malloc(10 * sizeof(char));
+  value = (char *)malloc(10 * sizeof(char));
   sprintf(value, "%d", count);
 
   MR_EmitToReducer(key, value);
@@ -40,32 +38,24 @@ void Combine(char *key, CombineGetter get_next) {
 
 void Reduce(char *key, ReduceStateGetter get_state,
             ReduceGetter get_next, int partition_number) {
-  // `get_state` is only being used for "eager mode" (explained later)
-  assert(get_state == NULL);
+  char *state = get_state(key, partition_number);
+  int count = (state != NULL) ? atoi(state) : 0;
 
-  int count = 0;
-
-  char *value;
-  while ((value = get_next(key, partition_number)) != NULL) {
+  char *value = get_next(key, partition_number);
+  if (value != NULL) {
     count += atoi(value);
+    //printf("Count for %s pumped to %d with value %s\n", key, count, value);
+    // Convert integer (count) to string (value)
+    value = (char *)malloc(10 * sizeof(char));
+    sprintf(value, "%d", count);
+
+    MR_EmitReducerState(key, value, partition_number);
+    free(value);
+  } else {
+    printf("%s %d\n", key, count);
   }
-
-  // Convert integer (count) to string (value)
-  value = (char*)malloc(10 * sizeof(char));
-  sprintf(value, "%d", count);
-
-  printf("%s %s\n", key, value);
-  free(value);
 }
-
 int main(int argc, char *argv[]) {
-
-  MR_Run(argc, argv, Map, 3,
-         Reduce, 1, Combine, MR_DefaultHashPartition);
-
   MR_Run(argc, argv, Map, 10,
          Reduce, 10, Combine, MR_DefaultHashPartition);
-
-  MR_Run(argc, argv, Map, 1,
-         Reduce, 5, Combine, MR_DefaultHashPartition);
 }
