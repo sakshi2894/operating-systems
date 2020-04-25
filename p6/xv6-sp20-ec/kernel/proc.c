@@ -11,6 +11,16 @@ struct {
   struct proc proc[NPROC];
 } ptable;
 
+
+// Queue lock
+// If lock is not available, then the calling thread is put to sleep
+// When unlock is called, at least one thread (if available) can grab the lock
+// Avoids spin
+struct {
+  struct spinlock lock;	// helper or guard spinlock
+  int locked;	// IF this is 0, lock is available - else not
+} qlock;
+
 static struct proc *initproc;
 
 int nextpid = 1;
@@ -23,6 +33,8 @@ void
 pinit(void)
 {
   initlock(&ptable.lock, "ptable");
+  initlock(&ptable.lock, "qlock");
+  qlock.locked = 0; 	// Initialise to unlocked 
 }
 
 // Look in the process table for an UNUSED proc.
@@ -435,6 +447,34 @@ yield(void)
   release(&ptable.lock);
 }
 
+void sleep_lock(void) 
+{
+  // Acquire this guard spinlock - need to have this to change locked from 0 to 1
+
+  acquire(&qlock.lock);
+
+  // Nobody can change qlock.locked here -- because I acquired the above lock.
+
+  // Put the calling thread to sleep if lock is not available
+  // If not 0, someone else is holding the lock - wait for it to become 0
+  while (qlock.locked) {
+    // While condition to make sure that the lock is free even after i've woken up since multiple threads could be woken up
+    // I'm holding qlock.lock when calling sleep 
+    sleep(&qlock, &qlock.lock);
+  }
+
+  qlock.locked = 1;
+  release(&qlock.lock);
+}
+
+void sleep_unlock(void) {
+  acquire(&qlock.lock);
+  qlock.locked = 0;
+  wakeup(&qlock);
+  release(&qlock.lock);
+}
+
+
 // A fork child's very first scheduling by scheduler()
 // will swtch here.  "Return" to user space.
 void
@@ -446,14 +486,25 @@ forkret(void)
   // Return to "caller", actually trapret (see allocproc).
 }
 
+
+// Sleep here resembles the property that we saw in CVs
+// Wakeup here wakees ALL the threads that were sleeping on channel chan -- similar to braodcast need to recheck whether the condition before you went to sleep is still true
+
+
+
 // Atomically release lock and sleep on chan.
-// Reacquires lock when awakened.
+// Reacquires lock when awakened. -- Important
+// chan -> channel
+// Want to be holding the  lock when calling the sleep function
+// Ensures it releases the lock just before it goes to sleep.
 void
 sleep(void *chan, struct spinlock *lk)
 {
+  // Check valid process is going on
   if(proc == 0)
     panic("sleep");
 
+  // Checking lock is not null
   if(lk == 0)
     panic("sleep without lk");
 
@@ -465,21 +516,24 @@ sleep(void *chan, struct spinlock *lk)
   // so it's okay to release lk.
   if(lk != &ptable.lock){  //DOC: sleeplock0
     acquire(&ptable.lock);  //DOC: sleeplock1
+    // If wakeup happens after this line of code then we will not be interrupted
+    // because this process is definitely gonig to sleep.
     release(lk);
   }
 
   // Go to sleep.
-  proc->chan = chan;
+  proc->chan = chan;	// Remember the channel passed to us. 
   proc->state = SLEEPING;
-  sched();
+  sched();		// Switch to scheduler context which picks some other thread to run
 
+  // The next line of code will only be executed once this thread is woken up
   // Tidy up.
   proc->chan = 0;
 
   // Reacquire original lock.
   if(lk != &ptable.lock){  //DOC: sleeplock2
     release(&ptable.lock);
-    acquire(lk);
+    acquire(lk);	// Important line Acquires lk before returning // When sleep returns it has acquired this lock.
   }
 }
 
@@ -490,9 +544,11 @@ wakeup1(void *chan)
 {
   struct proc *p;
 
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+    // Check if process is sleeping and is sleeping on this channel
     if(p->state == SLEEPING && p->chan == chan)
-      p->state = RUNNABLE;
+      p->state = RUNNABLE; // next time the scheduler will consider p
+  }
 }
 
 // Wake up all processes sleeping on chan.
