@@ -124,3 +124,43 @@ int sys_join(void)
 
   return join(stack);
 }
+
+int sys_sem_init(void)
+{
+   int* sem_id;
+   int count;
+   if (argptr(0, (void*)&sem_id, sizeof(*sem_id)) < 0) 
+     return -1;
+
+   if(argint(1, &count) < 0)
+     return -1;
+   
+   return sem_init(sem_id, count);
+}
+
+
+int sys_sem_wait(void)
+{
+  int sem_id;
+  if(argint(0, &sem_id) < 0)
+    return -1;
+  return sem_wait(sem_id);
+
+}
+
+int sys_sem_post(void)
+{
+  int sem_id;
+  if(argint(0, &sem_id) < 0)
+    return -1;
+  return sem_post(sem_id);
+}
+
+int sys_sem_destroy(void)
+{
+  int sem_id;
+  if(argint(0, &sem_id) < 0)
+    return -1;
+  return sem_destroy(sem_id);
+}
+

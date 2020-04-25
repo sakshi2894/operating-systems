@@ -619,4 +619,25 @@ procdump(void)
   }
 }
 
+int sem_init(int* sem_id, int count) 
+{ 
+  cprintf("count is %d\n", count);
+  return count;
+}
 
+int sem_wait(int sem_id)
+{
+  cprintf("sem id in wait is %d\n", sem_id);
+  return sem_id;
+}
+
+int sem_post(int sem_id) 
+{
+  cprintf("sem id in post is %d\n", sem_id);
+  return sem_id;
+}
+int sem_destroy(int sem_id)
+{
+  cprintf("sem id in destroy is %d\n", sem_id);
+  return sem_id;
+}

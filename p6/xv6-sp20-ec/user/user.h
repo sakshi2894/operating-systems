@@ -27,6 +27,11 @@ int sleep(int);
 int uptime(void);
 int clone(void(*fcn)(void*, void*), void *arg1, void *arg2, void *stack);
 int join(void **stack);
+int sem_init(int* sem_id, int count);
+int sem_wait(int sem_id);
+int sem_post(int sem_id);
+int sem_destroy(int sem_id);
+
 
 // user library functions (ulib.c)
 int stat(char*, struct stat*);
