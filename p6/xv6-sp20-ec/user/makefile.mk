@@ -18,7 +18,8 @@ USER_PROGS := \
 	usertests\
 	wc\
 	zombie\
-	test
+	test\
+	lock_basic
 
 USER_PROGS := $(addprefix user/, $(USER_PROGS))
 

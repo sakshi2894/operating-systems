@@ -21,6 +21,20 @@ struct {
   int locked;	// IF this is 0, lock is available - else not
 } qlock;
 
+typedef struct {
+  int value;
+  struct spinlock lock;
+  int used;
+} sem_t;
+
+/**
+struct {
+  struct spinlock guardlock;
+  sem_t sem[NUM_SEMAPHORES];
+} semtable;
+**/
+
+sem_t sems[NUM_SEMAPHORES];
 static struct proc *initproc;
 
 int nextpid = 1;
@@ -33,8 +47,16 @@ void
 pinit(void)
 {
   initlock(&ptable.lock, "ptable");
-  initlock(&ptable.lock, "qlock");
+  initlock(&qlock.lock, "qlock");
   qlock.locked = 0; 	// Initialise to unlocked 
+  // Initialise semaphore DS
+
+  //intilock(&semtable.lock, "semtable");
+  for (int i = 0; i < NUM_SEMAPHORES; i++) {
+    initlock(&sems[i].lock, "sem_" + i);
+    sems[i].used = 0;
+  }
+
 }
 
 // Look in the process table for an UNUSED proc.
@@ -515,7 +537,9 @@ sleep(void *chan, struct spinlock *lk)
   // (wakeup runs with ptable.lock locked),
   // so it's okay to release lk.
   if(lk != &ptable.lock){  //DOC: sleeplock0
+//    cprintf("Process %d trying to acquire ptable lock\n", proc->pid);
     acquire(&ptable.lock);  //DOC: sleeplock1
+//    cprintf("Process %d acquired ptable lock\n", proc->pid);
     // If wakeup happens after this line of code then we will not be interrupted
     // because this process is definitely gonig to sleep.
     release(lk);
@@ -528,12 +552,16 @@ sleep(void *chan, struct spinlock *lk)
 
   // The next line of code will only be executed once this thread is woken up
   // Tidy up.
+
+  //cprintf("Process %d woken up from sleep\n", proc->pid);
   proc->chan = 0;
 
   // Reacquire original lock.
   if(lk != &ptable.lock){  //DOC: sleeplock2
     release(&ptable.lock);
     acquire(lk);	// Important line Acquires lk before returning // When sleep returns it has acquired this lock.
+    
+    //cprintf("Process %d acquired released lock\n", proc->pid);
   }
 }
 
@@ -560,6 +588,22 @@ wakeup(void *chan)
   release(&ptable.lock);
 }
 
+
+void wakeup2(void *chan)
+{
+
+  acquire(&ptable.lock);
+    struct proc *p;
+
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+    // Check if process is sleeping and is sleeping on this channel
+    if(p->state == SLEEPING && p->chan == chan) {
+      p->state = RUNNABLE; // next time the scheduler will consider p
+      break;
+    }
+  }
+  release(&ptable.lock);
+}
 // Kill the process with the given pid.
 // Process won't exit until it returns
 // to user space (see trap in trap.c).
@@ -621,23 +665,63 @@ procdump(void)
 
 int sem_init(int* sem_id, int count) 
 { 
-  cprintf("count is %d\n", count);
-  return count;
+  int found = 0;
+  for (int i = 0; i < NUM_SEMAPHORES; i++) {
+    acquire(&sems[i].lock);
+    if (sems[i].used == 0) {
+      sems[i].used = 1;
+      *sem_id = i;
+      found = 1;
+    }
+    release(&sems[i].lock);
+    if (found == 1) {
+      break;
+    }
+    //if (i != -1) {}
+  }
+  if (found == 0) {
+    return -1;
+  }
+  sems[*sem_id].value = count;
+  return 0;
 }
 
 int sem_wait(int sem_id)
 {
-  cprintf("sem id in wait is %d\n", sem_id);
-  return sem_id;
+  if (sem_id < 0 || sem_id >= NUM_SEMAPHORES) return -1;
+  if (sems[sem_id].used == 0) return -1;	// Semaphore getting used without initalization.
+  acquire(&sems[sem_id].lock);
+  sems[sem_id].value = sems[sem_id].value - 1;
+  //cprintf("Process %d entered with value %d\n", proc->pid, sems[sem_id].value);
+  if (sems[sem_id].value < 0) {
+    //cprintf("Process %d sleeping and releasing lock\n", proc->pid);
+    sleep(&sems[sem_id], &sems[sem_id].lock);	  
+    //cprintf("Process %d up from sleep\n", proc->pid);
+  }
+  //cprintf("sem id in wait is %d\n", sem_id);
+  release(&sems[sem_id].lock);
+  return 0;
 }
 
 int sem_post(int sem_id) 
 {
-  cprintf("sem id in post is %d\n", sem_id);
-  return sem_id;
+  if (sem_id < 0 || sem_id >= NUM_SEMAPHORES) return -1;
+  if (sems[sem_id].used == 0) return -1;      	// Semaphore getting used without initialization.
+  acquire(&sems[sem_id].lock);
+  sems[sem_id].value = sems[sem_id].value + 1;
+  //cprintf("Thread of process %d done, waking up other theads with val %d\n", proc->pid, sems[sem_id].value);
+  wakeup2(&sems[sem_id]);
+  //cprintf("Process %d woke up waiting threads\n ", proc->pid);
+  //cprintf("sem id in post is %d\n", sem_id);
+  release(&sems[sem_id].lock);
+  return 0;
 }
+
 int sem_destroy(int sem_id)
 {
-  cprintf("sem id in destroy is %d\n", sem_id);
-  return sem_id;
+  acquire(&sems[sem_id].lock);
+  sems[sem_id].used = 0;
+  //cprintf("sem id in destroy is %d\n", sem_id);
+  release(&sems[sem_id].lock);
+  return 0;
 }
