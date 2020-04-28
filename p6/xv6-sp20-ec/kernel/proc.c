@@ -56,7 +56,6 @@ pinit(void)
   for (int i = 0; i < NUM_SEMAPHORES; i++) {
     initlock(&sems[i].lock, "sem_" + i);
     sems[i].used = 0;
-    sems[i].proc_run = 0;
   }
 
 }
@@ -693,16 +692,12 @@ int sem_wait(int sem_id)
   if (sem_id < 0 || sem_id >= NUM_SEMAPHORES) return -1;
   if (sems[sem_id].used == 0) return -1;	// Semaphore getting used without initalization.
   acquire(&sems[sem_id].lock);
-  sems[sem_id].value = sems[sem_id].value - 1;
-  //cprintf("Process %d entered with value %d\n", proc->pid, sems[sem_id].value);
-  while (sems[sem_id].value < 0 && sems[sem_id].proc_run == 1) {	// To ensure only one process woken up
-    //cprintf("Process %d sleeping and releasing lock\n", proc->pid);
+ 
+  while (sems[sem_id].value <= 0) {	// To ensure only one process woken up
     sleep(&sems[sem_id], &sems[sem_id].lock);	  
-    //cprintf("Process %d up from sleep\n", proc->pid);
   }
+  sems[sem_id].value = sems[sem_id].value - 1;
 
-  sems[sem_id].proc_run = 1;
-  //cprintf("sem id in wait is %d\n", sem_id);
   release(&sems[sem_id].lock);
   return 0;
 }
@@ -712,12 +707,10 @@ int sem_post(int sem_id)
   if (sem_id < 0 || sem_id >= NUM_SEMAPHORES) return -1;
   if (sems[sem_id].used == 0) return -1;      	// Semaphore getting used without initialization.
   acquire(&sems[sem_id].lock);
+  
   sems[sem_id].value = sems[sem_id].value + 1;
-  sems[sem_id].proc_run = 0;
-  //cprintf("Thread of process %d done, waking up other theads with val %d\n", proc->pid, sems[sem_id].value);
   wakeup(&sems[sem_id]);
-  //cprintf("Process %d woke up waiting threads\n ", proc->pid);
-  //cprintf("sem id in post is %d\n", sem_id);
+  
   release(&sems[sem_id].lock);
   return 0;
 }
