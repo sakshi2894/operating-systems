@@ -25,8 +25,9 @@ typedef struct {
   int value;
   struct spinlock lock;
   int used;
-  int proc_run;
 } sem_t;
+
+struct spinlock slock;
 
 /**
 struct {
@@ -49,6 +50,7 @@ pinit(void)
 {
   initlock(&ptable.lock, "ptable");
   initlock(&qlock.lock, "qlock");
+  initlock(&slock, "slock");
   qlock.locked = 0; 	// Initialise to unlocked 
   // Initialise semaphore DS
 
@@ -667,19 +669,19 @@ procdump(void)
 int sem_init(int* sem_id, int count) 
 { 
   int found = 0;
+  acquire(&slock);
   for (int i = 0; i < NUM_SEMAPHORES; i++) {
-    acquire(&sems[i].lock);
     if (sems[i].used == 0) {
+      initlock(&sems[i].lock, "sem_" + i);
       sems[i].used = 1;
       *sem_id = i;
       found = 1;
     }
-    release(&sems[i].lock);
     if (found == 1) {
       break;
     }
-    //if (i != -1) {}
   }
+  release(&slock);
   if (found == 0) {
     return -1;
   }
@@ -690,9 +692,16 @@ int sem_init(int* sem_id, int count)
 int sem_wait(int sem_id)
 {
   if (sem_id < 0 || sem_id >= NUM_SEMAPHORES) return -1;
-  if (sems[sem_id].used == 0) return -1;	// Semaphore getting used without initalization.
+  
+  acquire(&slock);
+  if (sems[sem_id].used == 0) {
+    release(&slock);
+    return -1; // Semaphore getting used without initalization
+  }
+  release(&slock);
+
   acquire(&sems[sem_id].lock);
- 
+
   while (sems[sem_id].value <= 0) {	// To ensure only one process woken up
     sleep(&sems[sem_id], &sems[sem_id].lock);	  
   }
@@ -705,7 +714,14 @@ int sem_wait(int sem_id)
 int sem_post(int sem_id) 
 {
   if (sem_id < 0 || sem_id >= NUM_SEMAPHORES) return -1;
-  if (sems[sem_id].used == 0) return -1;      	// Semaphore getting used without initialization.
+  
+  acquire(&slock);
+  if (sems[sem_id].used == 0) {
+    release(&slock);
+    return -1; // Semaphore getting used without initalization
+  }
+  release(&slock);
+
   acquire(&sems[sem_id].lock);
   
   sems[sem_id].value = sems[sem_id].value + 1;
@@ -717,10 +733,15 @@ int sem_post(int sem_id)
 
 int sem_destroy(int sem_id)
 {
-  acquire(&sems[sem_id].lock);
+
+  if (sem_id < 0 || sem_id >= NUM_SEMAPHORES) return -1;
+
+  acquire(&slock);
+  if (sems[sem_id].used == 0) {
+    release(&slock);
+    return -1;  // Semaphore getting used without initalization.
+  }
   sems[sem_id].used = 0;
-  sems[sem_id].proc_run = 0;
-  //cprintf("sem id in destroy is %d\n", sem_id);
-  release(&sems[sem_id].lock);
+  release(&slock);
   return 0;
 }
