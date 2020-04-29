@@ -676,8 +676,6 @@ int sem_init(int* sem_id, int count)
       sems[i].used = 1;
       *sem_id = i;
       found = 1;
-    }
-    if (found == 1) {
       break;
     }
   }
