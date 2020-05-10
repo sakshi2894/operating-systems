@@ -111,6 +111,10 @@ int             wait(void);
 int             join(void**);
 void            wakeup(void*);
 void            yield(void);
+int 		sem_init(int* sem_id, int count);
+int 		sem_wait(int sem_id);
+int 		sem_post(int sem_id);
+int 		sem_destroy(int sem_id);
 
 // swtch.S
 void            swtch(struct context**, struct context*);

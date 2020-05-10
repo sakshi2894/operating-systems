@@ -11,6 +11,32 @@ struct {
   struct proc proc[NPROC];
 } ptable;
 
+
+// Queue lock
+// If lock is not available, then the calling thread is put to sleep
+// When unlock is called, at least one thread (if available) can grab the lock
+// Avoids spin
+struct {
+  struct spinlock lock;	// helper or guard spinlock
+  int locked;	// IF this is 0, lock is available - else not
+} qlock;
+
+typedef struct {
+  int value;
+  struct spinlock lock;
+  int used;
+} sem_t;
+
+struct spinlock slock;
+
+/**
+struct {
+  struct spinlock guardlock;
+  sem_t sem[NUM_SEMAPHORES];
+} semtable;
+**/
+
+sem_t sems[NUM_SEMAPHORES];
 static struct proc *initproc;
 
 int nextpid = 1;
@@ -23,6 +49,17 @@ void
 pinit(void)
 {
   initlock(&ptable.lock, "ptable");
+  initlock(&qlock.lock, "qlock");
+  initlock(&slock, "slock");
+  qlock.locked = 0; 	// Initialise to unlocked 
+  // Initialise semaphore DS
+
+  //intilock(&semtable.lock, "semtable");
+  for (int i = 0; i < NUM_SEMAPHORES; i++) {
+    initlock(&sems[i].lock, "sem_" + i);
+    sems[i].used = 0;
+  }
+
 }
 
 // Look in the process table for an UNUSED proc.
@@ -435,6 +472,34 @@ yield(void)
   release(&ptable.lock);
 }
 
+void sleep_lock(void) 
+{
+  // Acquire this guard spinlock - need to have this to change locked from 0 to 1
+
+  acquire(&qlock.lock);
+
+  // Nobody can change qlock.locked here -- because I acquired the above lock.
+
+  // Put the calling thread to sleep if lock is not available
+  // If not 0, someone else is holding the lock - wait for it to become 0
+  while (qlock.locked) {
+    // While condition to make sure that the lock is free even after i've woken up since multiple threads could be woken up
+    // I'm holding qlock.lock when calling sleep 
+    sleep(&qlock, &qlock.lock);
+  }
+
+  qlock.locked = 1;
+  release(&qlock.lock);
+}
+
+void sleep_unlock(void) {
+  acquire(&qlock.lock);
+  qlock.locked = 0;
+  wakeup(&qlock);
+  release(&qlock.lock);
+}
+
+
 // A fork child's very first scheduling by scheduler()
 // will swtch here.  "Return" to user space.
 void
@@ -446,14 +511,25 @@ forkret(void)
   // Return to "caller", actually trapret (see allocproc).
 }
 
+
+// Sleep here resembles the property that we saw in CVs
+// Wakeup here wakees ALL the threads that were sleeping on channel chan -- similar to braodcast need to recheck whether the condition before you went to sleep is still true
+
+
+
 // Atomically release lock and sleep on chan.
-// Reacquires lock when awakened.
+// Reacquires lock when awakened. -- Important
+// chan -> channel
+// Want to be holding the  lock when calling the sleep function
+// Ensures it releases the lock just before it goes to sleep.
 void
 sleep(void *chan, struct spinlock *lk)
 {
+  // Check valid process is going on
   if(proc == 0)
     panic("sleep");
 
+  // Checking lock is not null
   if(lk == 0)
     panic("sleep without lk");
 
@@ -464,22 +540,31 @@ sleep(void *chan, struct spinlock *lk)
   // (wakeup runs with ptable.lock locked),
   // so it's okay to release lk.
   if(lk != &ptable.lock){  //DOC: sleeplock0
+//    cprintf("Process %d trying to acquire ptable lock\n", proc->pid);
     acquire(&ptable.lock);  //DOC: sleeplock1
+//    cprintf("Process %d acquired ptable lock\n", proc->pid);
+    // If wakeup happens after this line of code then we will not be interrupted
+    // because this process is definitely gonig to sleep.
     release(lk);
   }
 
   // Go to sleep.
-  proc->chan = chan;
+  proc->chan = chan;	// Remember the channel passed to us. 
   proc->state = SLEEPING;
-  sched();
+  sched();		// Switch to scheduler context which picks some other thread to run
 
+  // The next line of code will only be executed once this thread is woken up
   // Tidy up.
+
+  //cprintf("Process %d woken up from sleep\n", proc->pid);
   proc->chan = 0;
 
   // Reacquire original lock.
   if(lk != &ptable.lock){  //DOC: sleeplock2
     release(&ptable.lock);
-    acquire(lk);
+    acquire(lk);	// Important line Acquires lk before returning // When sleep returns it has acquired this lock.
+    
+    //cprintf("Process %d acquired released lock\n", proc->pid);
   }
 }
 
@@ -490,9 +575,11 @@ wakeup1(void *chan)
 {
   struct proc *p;
 
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+    // Check if process is sleeping and is sleeping on this channel
     if(p->state == SLEEPING && p->chan == chan)
-      p->state = RUNNABLE;
+      p->state = RUNNABLE; // next time the scheduler will consider p
+  }
 }
 
 // Wake up all processes sleeping on chan.
@@ -504,6 +591,22 @@ wakeup(void *chan)
   release(&ptable.lock);
 }
 
+
+void wakeup2(void *chan)
+{
+
+  acquire(&ptable.lock);
+    struct proc *p;
+
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+    // Check if process is sleeping and is sleeping on this channel
+    if(p->state == SLEEPING && p->chan == chan) {
+      p->state = RUNNABLE; // next time the scheduler will consider p
+      break;
+    }
+  }
+  release(&ptable.lock);
+}
 // Kill the process with the given pid.
 // Process won't exit until it returns
 // to user space (see trap in trap.c).
@@ -563,4 +666,80 @@ procdump(void)
   }
 }
 
+int sem_init(int* sem_id, int count) 
+{ 
+  int found = 0;
+  acquire(&slock);
+  for (int i = 0; i < NUM_SEMAPHORES; i++) {
+    if (sems[i].used == 0) {
+      initlock(&sems[i].lock, "sem_" + i);
+      sems[i].used = 1;
+      *sem_id = i;
+      found = 1;
+      break;
+    }
+  }
+  release(&slock);
+  if (found == 0) {
+    return -1;
+  }
+  sems[*sem_id].value = count;
+  return 0;
+}
 
+int sem_wait(int sem_id)
+{
+  if (sem_id < 0 || sem_id >= NUM_SEMAPHORES) return -1;
+  
+  acquire(&slock);
+  if (sems[sem_id].used == 0) {
+    release(&slock);
+    return -1; // Semaphore getting used without initalization
+  }
+  release(&slock);
+
+  acquire(&sems[sem_id].lock);
+
+  while (sems[sem_id].value <= 0) {	// To ensure only one process woken up
+    sleep(&sems[sem_id], &sems[sem_id].lock);	  
+  }
+  sems[sem_id].value = sems[sem_id].value - 1;
+
+  release(&sems[sem_id].lock);
+  return 0;
+}
+
+int sem_post(int sem_id) 
+{
+  if (sem_id < 0 || sem_id >= NUM_SEMAPHORES) return -1;
+  
+  acquire(&slock);
+  if (sems[sem_id].used == 0) {
+    release(&slock);
+    return -1; // Semaphore getting used without initalization
+  }
+  release(&slock);
+
+  acquire(&sems[sem_id].lock);
+  
+  sems[sem_id].value = sems[sem_id].value + 1;
+  wakeup(&sems[sem_id]);
+  
+  release(&sems[sem_id].lock);
+  return 0;
+}
+
+int sem_destroy(int sem_id)
+{
+
+  if (sem_id < 0 || sem_id >= NUM_SEMAPHORES) return -1;
+
+  acquire(&slock);
+  if (sems[sem_id].used == 0) {
+    release(&slock);
+    return -1;  // Semaphore getting used without initalization.
+  }
+  sems[sem_id].used = 0;
+  release(&slock);
+  return 0;
+}
